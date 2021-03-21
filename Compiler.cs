@@ -35,7 +35,8 @@ namespace wooby
         Asc,
         Desc,
         Order,
-        By
+        By,
+        As
     }
 
     public class Expression
@@ -56,6 +57,11 @@ namespace wooby
             public double NumberValue;
             public Operator OperatorValue;
             public ColumnReference ReferenceValue;
+
+            public bool IsWildcard()
+            {
+                return (Kind == NodeKind.Operator && OperatorValue == Operator.Asterisk) || (Kind == NodeKind.Reference && ReferenceValue.Column == "*");
+            }
         }
 
         public enum ExpressionType
@@ -66,22 +72,32 @@ namespace wooby
             Boolean
         }
 
-        private string _identifier;
+        public static ExpressionType ColumnTypeToExpressionType(ColumnType type)
+        {
+            return type switch
+            {
+                ColumnType.Boolean => ExpressionType.Boolean,
+                ColumnType.Number => ExpressionType.Number,
+                ColumnType.String => ExpressionType.String,
+                _ => throw new NotImplementedException()
+            };
+        }
 
         public string FullText { get; set; }
-        public string Identifier
-        {
-            get
-            {
-                return _identifier ?? FullText;
-            }
-            set
-            {
-                _identifier = value;
-            }
-        }
+        public ColumnReference Identifier { get; set; }
         public List<Node> Nodes { get; set; } = new List<Node>();
-        public ExpressionType TypeGuess { get; set; } = ExpressionType.Unknown;
+        public ExpressionType Type { get; set; } = ExpressionType.Unknown;
+
+        public bool IsWildcard()
+        {
+            if (Nodes.Count == 0)
+            {
+                return false;
+            }
+
+            var tokens = Nodes.Where(p => p.Kind == NodeKind.Operator && (p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight));
+            return tokens.Any() && tokens.First().IsWildcard();
+        }
     }
 
     public class TableReference

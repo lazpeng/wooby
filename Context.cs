@@ -54,5 +54,45 @@ namespace wooby
         {
             Schemas.Add(new Schema() { IsMain = true, Name = "main" });
         }
+
+        private TableMeta FindTable(TableReference reference)
+        {
+            string schema = reference.Schema;
+            if (string.IsNullOrEmpty(schema))
+            {
+                schema = "main";
+            }
+
+            var schemaMeta = Schemas.Find(s => s.Name == schema);
+            if (schemaMeta != null)
+            {
+                return schemaMeta.Tables.Find(t => t.Name == reference.Table);
+            }
+
+            return null;
+        }
+
+
+        public ColumnMeta FindColumn(ColumnReference reference)
+        {
+            var tableMeta = FindTable(reference);
+
+            if (tableMeta != null)
+            {
+                return tableMeta.Columns.Find(c => c.Name == reference.Column);
+            }
+
+            return null;
+        }
+
+        public bool IsReferenceValid(ColumnReference reference)
+        {
+            return FindColumn(reference) != null;
+        }
+
+        public bool IsReferenceValid(TableReference reference)
+        {
+            return FindTable(reference) != null;
+        }
     }
 }
