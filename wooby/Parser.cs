@@ -113,7 +113,7 @@ namespace wooby
         public static Token NextToken(string input, int offset = 0)
         {
             if (offset >= input.Length)
-                return null;
+                return new Token() { Kind = TokenKind.None };
 
             var skipped = SkipWhitespace(input, offset);
 
@@ -127,7 +127,7 @@ namespace wooby
                     TokenKind.Symbol => ParseSymbol(input, offset),
                     TokenKind.LiteralNumber => ParseNumber(input, offset),
                     TokenKind.Operator => ParseOperator(input, offset),
-                    _ => null
+                    _ => new Token() { Kind = TokenKind.None }
                 }
             };
 
@@ -224,7 +224,8 @@ namespace wooby
                 else if (!char.IsDigit(c))
                 {
                     break;
-                } else
+                }
+                else
                 {
                     int digit = c - '0';
 
@@ -285,7 +286,7 @@ namespace wooby
 
             return first.KeywordValue switch
             {
-                Keyword.Select => ParseSelect(input, first.InputLength, context),
+                Keyword.Select => ParseSelect(input, 0, context),
                 _ => throw new NotImplementedException()
             };
         }
@@ -298,6 +299,12 @@ namespace wooby
             do
             {
                 var token = NextToken(input, offset);
+
+                if (offset >= input.Length || token == null || token.Kind == TokenKind.None)
+                {
+                    break;
+                }
+
                 offset += token.InputLength;
 
                 if (token.Kind == TokenKind.Keyword)
@@ -475,7 +482,10 @@ namespace wooby
                     throw new Exception("Unexpected token in expression");
                 }
 
-                first = false;
+                if (first)
+                {
+                    first = false;
+                }
             } while (true);
 
             return offset;
@@ -525,7 +535,7 @@ namespace wooby
                 }
 
                 token = NextToken(input, offset);
-                if (token.Kind == TokenKind.Dot)
+                if (token != null && token.Kind == TokenKind.Dot)
                 {
                     offset += token.InputLength;
                 }
@@ -597,9 +607,16 @@ namespace wooby
 
         public static SelectCommand ParseSelect(string input, int offset, Context context)
         {
+            int originalOffset = offset;
             var command = new SelectCommand();
 
-            Token next;
+            Token next = NextToken(input, offset);
+            if (next.Kind != TokenKind.Keyword || next.KeywordValue != Keyword.Select)
+            {
+                throw new Exception("Failed initial check");
+            }
+            offset += next.InputLength;
+
             var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true };
 
             do
@@ -680,11 +697,14 @@ namespace wooby
                         }
                     }
                 }
-                else
+                else if (next.Kind != TokenKind.None)
                 {
                     throw new Exception($"Unexpected token in query at offset {offset}");
                 }
-            } while (next.Kind == TokenKind.None || next.Kind == TokenKind.SemiColon);
+            } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
+
+            offset = Math.Min(input.Length, offset);
+            command.OriginalText = input[originalOffset..offset];
 
             return command;
         }

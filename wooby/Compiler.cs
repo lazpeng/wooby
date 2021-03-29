@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -58,6 +59,21 @@ namespace wooby
             public Operator OperatorValue;
             public ColumnReference ReferenceValue;
 
+            public override bool Equals(object obj)
+            {
+                return obj is Node node &&
+                       Kind == node.Kind &&
+                       StringValue == node.StringValue &&
+                       NumberValue == node.NumberValue &&
+                       OperatorValue == node.OperatorValue &&
+                       ReferenceValue == node.ReferenceValue;
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(Kind, StringValue, NumberValue, OperatorValue, ReferenceValue);
+            }
+
             public bool IsWildcard()
             {
                 return (Kind == NodeKind.Operator && OperatorValue == Operator.Asterisk) || (Kind == NodeKind.Reference && ReferenceValue.Column == "*");
@@ -95,8 +111,24 @@ namespace wooby
                 return false;
             }
 
-            var tokens = Nodes.Where(p => p.Kind == NodeKind.Operator && (p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight));
+            var tokens = Nodes.Where(p => p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight));
             return tokens.Any() && tokens.First().IsWildcard();
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is Expression expression)
+            {
+                return Identifier == expression.Identifier &&
+                       Nodes.SequenceEqual(expression.Nodes) &&
+                       Type == expression.Type;
+            }
+            else return false;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(FullText, Identifier, Nodes, Type);
         }
     }
 
@@ -105,11 +137,35 @@ namespace wooby
         public string Schema { get; set; } = "";
         public string Table { get; set; } = "";
         public int InputLength { get; set; }
+
+        public override bool Equals(object obj)
+        {
+            return obj is TableReference reference &&
+                   Schema == reference.Schema &&
+                   Table == reference.Table;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Schema, Table);
+        }
     }
 
     public class ColumnReference : TableReference
     {
         public string Column { get; set; } = "";
+
+        public override bool Equals(object obj)
+        {
+            return obj is ColumnReference reference &&
+                    base.Equals(obj) &&
+                    Column == reference.Column;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(base.GetHashCode(), Schema, Table, Column);
+        }
     }
 
     public enum CommandKind
@@ -146,6 +202,18 @@ namespace wooby
     {
         public Expression OrderExpression { get; set; }
         public OrderingKind Kind { get; set; } = OrderingKind.Ascending;
+
+        public override bool Equals(object obj)
+        {
+            return obj is Ordering ordering &&
+                   (OrderExpression == ordering.OrderExpression || OrderExpression.Equals(OrderExpression)) &&
+                   Kind == ordering.Kind;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(OrderExpression, Kind);
+        }
     }
 
     public class SelectCommand : Command
@@ -160,6 +228,25 @@ namespace wooby
         public TableReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
         public Ordering OutputOrder { get; set; }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is SelectCommand command)
+            {
+                return Kind == command.Kind &&
+                   Class == command.Class &&
+                   OutputColumns.SequenceEqual(command.OutputColumns) &&
+                   (MainSource == command.MainSource || MainSource.Equals(command.MainSource)) &&
+                   (FilterConditions == command.FilterConditions || FilterConditions.Equals(command.FilterConditions)) &&
+                   (OutputOrder == command.OutputOrder || OutputOrder.Equals(command.OutputOrder));
+            }
+            else return false;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Kind, Class, OutputColumns, MainSource, FilterConditions, OutputOrder);
+        }
     }
 
     public class Compiler
