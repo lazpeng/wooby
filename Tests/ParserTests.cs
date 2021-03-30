@@ -66,6 +66,51 @@ namespace Tests
         }
 
         [TestMethod]
+        public void TestBasicColumnReference()
+        {
+            var context = new Context();
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            context.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+
+            var input = "table.a";
+
+            var reference = new Parser().ParseReference(input, 0, context, false, true);
+            var expected = new ColumnReference() { Column = "a", Table = "table" };
+
+            Assert.AreEqual(reference, expected);
+        }
+
+        [TestMethod]
+        public void TestColumnReference()
+        {
+            var context = new Context();
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            context.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+
+            var input = "main.table.a";
+
+            var reference = new Parser().ParseReference(input, 0, context, false, true);
+            var expected = new ColumnReference() { Schema = "main", Column = "a", Table = "table" };
+
+            Assert.AreEqual(reference, expected);
+        }
+
+        [TestMethod]
+        public void TestTableReference()
+        {
+            var context = new Context();
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            context.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+
+            var input = "main.table";
+
+            var reference = new Parser().ParseTableReference(input, 0, context, false);
+            var expected = new TableReference() { Table = "table", Schema = "main" };
+
+            Assert.AreEqual(reference, expected);
+        }
+
+        [TestMethod]
         public void TestNumber()
         {
             var input = " 3.14 ";
@@ -111,7 +156,7 @@ namespace Tests
         {
             var input = "2+2";
 
-            var expr = new Parser().ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags());
+            var expr = new Parser().ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags(), true);
 
             var expected = new Expression()
             {
@@ -211,6 +256,58 @@ namespace Tests
                 Nodes = new List<Expression.Node>
                 {
                     new Expression.Node() { Kind = Expression.NodeKind.Operator, OperatorValue = Operator.Asterisk }
+                }
+            });
+
+            Assert.AreEqual(command, expected);
+        }
+
+        [TestMethod]
+        public void TestSelectWithVariableAndColumn()
+        {
+            var input = "select CURRENT_DATE, a, table.b from table";
+
+            var ctx = new Context();
+            ctx.Variables.Add(new GlobalVariable() { Name = "CURRENT_DATE", Type = ColumnType.String });
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            var b = new ColumnMeta() { Name = "b", Type = ColumnType.String };
+            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a, b } });
+
+            var command = new Parser().ParseCommand(input, ctx);
+            Assert.IsTrue(command is SelectCommand);
+
+            var expected = new SelectCommand()
+            {
+                MainSource = new TableReference() { Table = "table" }
+            };
+
+            expected.OutputColumns.Add(new Expression()
+            {
+                Type = Expression.ExpressionType.String,
+                FullText = "CURRENT_DATE",
+                Nodes = new List<Expression.Node>
+                {
+                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "CURRENT_DATE" } }
+                }
+            });
+
+            expected.OutputColumns.Add(new Expression()
+            {
+                Type = Expression.ExpressionType.Number,
+                FullText = "a",
+                Nodes = new List<Expression.Node>
+                {
+                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "a", Table = "table" } }
+                }
+            });
+
+            expected.OutputColumns.Add(new Expression()
+            {
+                Type = Expression.ExpressionType.String,
+                FullText = "table.b",
+                Nodes = new List<Expression.Node>
+                {
+                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "b", Table = "table" } }
                 }
             });
 

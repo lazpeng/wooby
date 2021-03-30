@@ -47,7 +47,6 @@ namespace wooby
             Operator,
             String,
             Number,
-            Boolean,
             Reference
         }
 
@@ -66,7 +65,7 @@ namespace wooby
                        StringValue == node.StringValue &&
                        NumberValue == node.NumberValue &&
                        OperatorValue == node.OperatorValue &&
-                       ReferenceValue == node.ReferenceValue;
+                       (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue));
             }
 
             public override int GetHashCode()
