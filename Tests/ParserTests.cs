@@ -18,7 +18,7 @@ namespace Tests
         {
             var input = "   +   ";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.Operator);
             Assert.AreEqual(next.OperatorValue, Operator.Plus);
         }
@@ -28,20 +28,20 @@ namespace Tests
         {
             var input = " 'testing' SELECT 2.45 symbol";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.LiteralString);
 
             int offset = next.InputLength;
 
-            next = Parser.NextToken(input, offset);
+            next = new Parser().NextToken(input, offset);
             Assert.AreEqual(next.Kind, Parser.TokenKind.Keyword);
             offset += next.InputLength;
 
-            next = Parser.NextToken(input, offset);
+            next = new Parser().NextToken(input, offset);
             Assert.AreEqual(next.Kind, Parser.TokenKind.LiteralNumber);
             offset += next.InputLength;
 
-            next = Parser.NextToken(input, offset);
+            next = new Parser().NextToken(input, offset);
             Assert.AreEqual(next.Kind, Parser.TokenKind.Symbol);
         }
 
@@ -50,7 +50,7 @@ namespace Tests
         {
             var input = " 'test string' ";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.LiteralString);
             Assert.AreEqual(next.StringValue, "test string");
         }
@@ -60,7 +60,7 @@ namespace Tests
         {
             var input = " test another ";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.Symbol);
             Assert.AreEqual(next.StringValue, "test");
         }
@@ -70,19 +70,19 @@ namespace Tests
         {
             var input = " 3.14 ";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.LiteralNumber);
             Assert.AreEqual(next.NumberValue, 3.14);
 
             input = " 5";
 
-            next = Parser.NextToken(input, 0);
+            next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.LiteralNumber);
             Assert.AreEqual(next.NumberValue, 5);
 
             input = " 4.99e5";
 
-            next = Parser.NextToken(input, 0);
+            next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.LiteralNumber);
             Assert.AreEqual(next.NumberValue, 499000);
         }
@@ -92,7 +92,7 @@ namespace Tests
         {
             var input = " WHERE ";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.Keyword);
             Assert.AreEqual(next.KeywordValue, Keyword.Where);
         }
@@ -102,7 +102,7 @@ namespace Tests
         {
             var input = " , ";
 
-            var next = Parser.NextToken(input, 0);
+            var next = new Parser().NextToken(input, 0);
             Assert.AreEqual(next.Kind, Parser.TokenKind.Comma);
         }
 
@@ -111,7 +111,7 @@ namespace Tests
         {
             var input = "2+2";
 
-            var expr = Parser.ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags());
+            var expr = new Parser().ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags());
 
             var expected = new Expression()
             {
@@ -120,9 +120,9 @@ namespace Tests
                 Type = Expression.ExpressionType.Number,
                 Nodes = new List<Expression.Node>
                 {
-                    new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = 2},
+                    new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = 2 },
                     new Expression.Node() { Kind = Expression.NodeKind.Operator, OperatorValue = Operator.Plus },
-                    new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = 2},
+                    new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = 2 },
                 }
             };
 
@@ -137,12 +137,71 @@ namespace Tests
             var ctx = new Context();
             ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table" });
 
-            var command = Parser.ParseCommand(input, ctx);
+            var command = new Parser().ParseCommand(input, ctx);
             Assert.IsTrue(command is SelectCommand);
 
             var expected = new SelectCommand()
             {
                 MainSource = new TableReference() { Table = "table" }
+            };
+
+            expected.OutputColumns.Add(new Expression()
+            {
+                Type = Expression.ExpressionType.Unknown,
+                FullText = "*",
+                Nodes = new List<Expression.Node>
+                {
+                    new Expression.Node() { Kind = Expression.NodeKind.Operator, OperatorValue = Operator.Asterisk }
+                }
+            });
+
+            Assert.AreEqual(command, expected);
+        }
+
+        [TestMethod]
+        public void TestMoreCompleteSelect()
+        {
+            var input = "select * from table where 1=1 order by a desc";
+
+            var ctx = new Context();
+            var column = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { column } });
+
+            var command = new Parser().ParseCommand(input, ctx);
+            Assert.IsTrue(command is SelectCommand);
+
+            var expected = new SelectCommand()
+            {
+                MainSource = new TableReference() { Table = "table" },
+                OutputOrder = new Ordering()
+                {
+                    Kind = OrderingKind.Descending,
+                    OrderExpression = new Expression()
+                    {
+                        Type = Expression.ExpressionType.Number,
+                        FullText = "a",
+                        Nodes = new List<Expression.Node>()
+                        {
+                            new Expression.Node() 
+                            {
+                                Kind = Expression.NodeKind.Reference,
+                                ReferenceValue = new ColumnReference() { Column = "a" }
+                            }
+                        }
+                    }
+                },
+                FilterConditions = new Expression()
+                {
+                    Type = Expression.ExpressionType.Number,
+                    FullText = "1=1",
+                    IsBoolean = true,
+                    Nodes = new List<Expression.Node>()
+                    {
+                        new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = 1 },
+                        new Expression.Node() { Kind = Expression.NodeKind.Operator, OperatorValue = Operator.Equal },
+                        new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = 1 },
+                    }
+                }
             };
 
             expected.OutputColumns.Add(new Expression()
