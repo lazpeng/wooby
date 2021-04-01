@@ -10,6 +10,7 @@ namespace wooby
     {
         Text,
         Number,
+        Null,
     }
 
     public class ColumnValue
@@ -34,7 +35,7 @@ namespace wooby
 
     public abstract class DynamicVariable
     {
-        public abstract void WhenCalled(ExecutionContext context, ResultCallback OnResult);
+        public abstract ColumnValue WhenCalled(ExecutionContext context);
         public ColumnType ResultType { get; protected set; }
         public string Name { get; protected set; }
         public readonly long Id;
@@ -43,8 +44,6 @@ namespace wooby
         {
             this.Id = Id;
         }
-
-        public delegate void ResultCallback(ColumnValue Value);
     }
 
     class CurrentDate_Variable : DynamicVariable
@@ -55,10 +54,39 @@ namespace wooby
             ResultType = ColumnType.String;
         }
 
-        public override void WhenCalled(ExecutionContext _, ResultCallback OnResult)
+        public override ColumnValue WhenCalled(ExecutionContext _)
         {
-            var currentDate = DateTimeOffset.Now.ToString();
-            OnResult(new ColumnValue() { Kind = ValueKind.Text, Text = currentDate });
+            var currentDate = DateTime.Now.ToString("u");
+            return new ColumnValue() { Kind = ValueKind.Text, Text = currentDate };
+        }
+    }
+
+    class CurrentTime_Variable : DynamicVariable
+    {
+        public CurrentTime_Variable(long Id) : base(Id)
+        {
+            Name = "CURRENT_TIME";
+            ResultType = ColumnType.String;
+        }
+
+        public override ColumnValue WhenCalled(ExecutionContext _)
+        {
+            var time = DateTimeOffset.Now.ToString("hh:mm:sszzz");
+            return new ColumnValue() { Kind = ValueKind.Text, Text = time };
+        }
+    }
+
+    class DatabaseName_Variable : DynamicVariable
+    {
+        public DatabaseName_Variable(long Id) : base(Id)
+        {
+            Name = "DBNAME";
+            ResultType = ColumnType.String;
+        }
+
+        public override ColumnValue WhenCalled(ExecutionContext _)
+        {
+            return new ColumnValue() { Kind = ValueKind.Text, Text = "wooby" };
         }
     }
 
@@ -111,21 +139,26 @@ namespace wooby
         public ITableDataProvider DataProvider { get; set; }
     }
 
-    public enum OpCode
+    public enum OpCode : int
     {
-        SelectSourceTable,
+        SelectSourceTable = 0,
         PushCheckpointNext,
         CheckpointEnd,
         NewOutputRow,
         PushColumnToOutput,
         PushVariableToOutput,
-        LoadColumnIntoAux,
-        LoadVariableIntoAux,
-        SkipToEndIfCantSeek,
+        TrySeekElseSkip,
         SkipToNextIf,
         SortByOutputAsc,
         SortByOutputDesc,
-        // Comparisions
+        AddOutputColumnDefinition,
+        PushNumber,
+        PushString,
+        Sum,
+        Sub,
+        Div,
+        Mul,
+        Concat,
         AuxLessNumber,
         AuxLessEqNumber,
         AuxMoreNumber,
@@ -146,12 +179,18 @@ namespace wooby
     public class ExecutionContext
     {
         public Output QueryOutput { get; } = new Output();
-        public int RowsAffected { get; set; }
+        public int RowsAffected { get; set; } = 0;
         public Context Context { get; }
         public TableData MainSource { get; set; }
-        public Stack<long> Checkpoints { get; set; }
-        public ColumnValue AuxiliaryValue { get; set; }
-        public bool LastComparisionResult { get; set; }
+        public Stack<long> Checkpoints { get; set; } = new Stack<long>();
+        public Stack<double> NumberStack { get; set; } = new Stack<double>();
+        public Stack<string> StringStack { get; set; } = new Stack<string>();
+        public bool LastComparisionResult { get; set; } = false;
+
+        public ExecutionContext(Context ctx)
+        {
+            Context = ctx;
+        }
     }
 
     public class Machine
@@ -162,13 +201,12 @@ namespace wooby
 
         public Context Initialize()
         {
-            var ctx = new Context();
+            Context = new Context();
 
             InitializeVariables();
             InitializeTables();
 
-            Context = ctx;
-            return ctx;
+            return Context;
         }
 
         private void InitializeVariables()
@@ -177,7 +215,9 @@ namespace wooby
 
             Variables = new List<DynamicVariable>()
             {
-                new CurrentDate_Variable(id++)
+                new CurrentDate_Variable(id++),
+                new CurrentTime_Variable(id++),
+                new DatabaseName_Variable(id++),
             };
 
             foreach (var v in Variables)
@@ -188,8 +228,6 @@ namespace wooby
 
         private void InitializeTables()
         {
-            long id = 0;
-
             Tables = new List<TableData>()
             {
                 new TableData()
@@ -198,7 +236,6 @@ namespace wooby
                     {
                         Name = "dual",
                         Columns = new List<ColumnMeta>(),
-                        Id = id++,
                         IsReal = false,
                         IsTemporary = false
                     },
@@ -208,13 +245,46 @@ namespace wooby
 
             foreach (var t in Tables)
             {
-                Context.Schemas[0].Tables.Add(t.Meta);
+                Context.AddTable(t.Meta, Context.Schemas[0]);
             }
+        }
+
+        private static void CheckOutputRows(ExecutionContext context)
+        {
+            if (context.QueryOutput.Rows.Count == 1 && context.QueryOutput.Rows[0].All(v => v.Kind == ValueKind.Null))
+            {
+                context.QueryOutput.Rows.RemoveAt(0);
+            }
+        }
+
+        private static int SkipUntilNextEnd(List<Instruction> instructions, int current)
+        {
+            do
+            {
+                if (instructions[current].OpCode == OpCode.CheckpointEnd || current == instructions.Count - 1)
+                {
+                    break;
+                }
+
+                ++current;
+            } while (true);
+
+            return current;
+        }
+
+        private static void PushToOutput(ExecutionContext context, ColumnValue value)
+        {
+            if (context.QueryOutput.Rows.Count == 0)
+            {
+                throw new InvalidOperationException("Query output has no rows to push to");
+            }
+
+            context.QueryOutput.Rows.Last().Add(value);
         }
 
         public ExecutionContext Execute(List<Instruction> instructions)
         {
-            var exec = new ExecutionContext();
+            var exec = new ExecutionContext(Context);
 
             for (int i = 0; i < instructions.Count; ++i)
             {
@@ -234,10 +304,36 @@ namespace wooby
                             throw new Exception("SelectSourceTable: Could not find source table with given id");
                         }
                         break;
+                    case OpCode.PushCheckpointNext:
+                        exec.Checkpoints.Push(i + 1);
+                        break;
+                    case OpCode.TrySeekElseSkip:
+                        if (!exec.MainSource.DataProvider.SeekNext() && exec.QueryOutput.Rows.Count > 0)
+                        {
+                            i = SkipUntilNextEnd(instructions, i);
+                            continue;
+                        }
+                        break;
+                    case OpCode.NewOutputRow:
+                        exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                        break;
+                    case OpCode.AddOutputColumnDefinition:
+                        var definition = new OutputColumnMeta() { OutputName = instruction.Str1, Visible = true, Kind = ValueKind.Text };
+                        exec.QueryOutput.Definition.Add(definition);
+                        break;
+                    case OpCode.CheckpointEnd:
+                        break;
+                    case OpCode.PushColumnToOutput:
+                        break;
+                    case OpCode.PushVariableToOutput:
+                        PushToOutput(exec, Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
+                        break;
                     default:
                         throw new Exception("Unrecognized opcode");
                 }
             }
+
+            CheckOutputRows(exec);
 
             return exec;
         }

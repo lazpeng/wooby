@@ -320,14 +320,20 @@ namespace wooby
                         throw new Exception("Unresolved reference in expression");
                     }
                 }
-
-            } else if (node.Kind == Expression.NodeKind.Number)
+            }
+            else if (node.Kind == Expression.NodeKind.Number)
             {
                 nodeType = Expression.ExpressionType.Number;
-            } else if (node.Kind == Expression.NodeKind.String)
+            }
+            else if (node.Kind == Expression.NodeKind.String)
             {
                 nodeType = Expression.ExpressionType.String;
-            } else
+            }
+            else if (node.Kind == Expression.NodeKind.Null)
+            {
+                nodeType = Expression.ExpressionType.Unknown;
+            }
+            else
             {
                 return;
             }
@@ -376,15 +382,14 @@ namespace wooby
                             throw new Exception("Unexpected alias on wildcard");
                         }
 
-                        var reference = ParseReference(input, offset, context, flags.WildcardAllowed, resolveReferences);
-                        expr.Identifier = reference;
-
-                        if (!string.IsNullOrEmpty(reference.Table))
+                        token = NextToken(input, offset);
+                        if (token.Kind != TokenKind.Symbol)
                         {
-                            throw new Exception("Invalid expression alias");
+                            throw new Exception("Expected symbol after AS keyword");
                         }
 
-                        offset += reference.InputLength;
+                        expr.Identifier = token.StringValue;
+                        offset += token.InputLength;
 
                         token = NextToken(input, offset);
                         if (token.Kind == TokenKind.Comma)
@@ -400,6 +405,19 @@ namespace wooby
                         {
                             throw new Exception("Unexpected token after expression alias");
                         }
+                    }
+                    else if (token.KeywordValue == Keyword.Null)
+                    {
+                        if (!lastWasOperator)
+                        {
+                            throw new Exception("Two consecutive values in expression");
+                        }
+
+                        lastWasOperator = false;
+
+                        var node = new Expression.Node() { Kind = Expression.NodeKind.Null };
+                        expr.Nodes.Add(node);
+                        ProcessExpressionNodeType(expr, context, node);
                     }
                     else
                     {
@@ -491,7 +509,8 @@ namespace wooby
                         if (resolveReferences)
                         {
                             ProcessExpressionNodeType(expr, context, symNode);
-                        } else
+                        }
+                        else
                         {
                             expr.Type = Expression.ExpressionType.Unknown;
                         }
@@ -538,9 +557,9 @@ namespace wooby
 
             offset = ParseSubExpression(input, offset, context, flags, expr, true, resolveReferences);
 
-            if (expr.Type == Expression.ExpressionType.Unknown && !expr.IsWildcard() && resolveReferences)
+            if (expr.IsOnlyReference() && expr.Identifier == null)
             {
-                throw new Exception("Fatal error, expression doesn't have a type but it's not a wildcard");
+                expr.Identifier = expr.Nodes[0].ReferenceValue.Join();
             }
 
             expr.FullText = input[originalOffset..offset];

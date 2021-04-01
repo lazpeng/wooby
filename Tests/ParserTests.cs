@@ -285,6 +285,7 @@ namespace Tests
             {
                 Type = Expression.ExpressionType.String,
                 FullText = "CURRENT_DATE",
+                Identifier = "CURRENT_DATE",
                 Nodes = new List<Expression.Node>
                 {
                     new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "CURRENT_DATE" } }
@@ -295,6 +296,7 @@ namespace Tests
             {
                 Type = Expression.ExpressionType.Number,
                 FullText = "a",
+                Identifier = "a",
                 Nodes = new List<Expression.Node>
                 {
                     new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "a", Table = "table" } }
@@ -305,6 +307,7 @@ namespace Tests
             {
                 Type = Expression.ExpressionType.String,
                 FullText = "table.b",
+                Identifier = "table.b",
                 Nodes = new List<Expression.Node>
                 {
                     new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "b", Table = "table" } }
@@ -312,6 +315,51 @@ namespace Tests
             });
 
             Assert.AreEqual(command, expected);
+        }
+
+        [TestMethod]
+        public void TestNullExpression()
+        {
+            var input = "NULL";
+
+            var ctx = new Context();
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+
+            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true);
+
+            Assert.AreEqual(result.Type, Expression.ExpressionType.Unknown);
+            Assert.IsTrue(result.Nodes.Count == 1);
+            Assert.AreEqual(result.Nodes[0].Kind, Expression.NodeKind.Null);
+        }
+
+        [TestMethod]
+        public void TestNamedExpression()
+        {
+            var input = "table.a as name FROM";
+
+            var ctx = new Context();
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+
+            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags() { IdentifierAllowed = true }, true);
+
+            Assert.IsNotNull(result.Identifier);
+            Assert.AreEqual(result.Identifier, "name");
+        }
+
+        [TestMethod]
+        public void TestReferenceOnlyExpression()
+        {
+            var input = "table.a";
+
+            var ctx = new Context();
+            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
+            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+
+            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true);
+
+            Assert.IsTrue(result.IsOnlyReference());
         }
     }
 }

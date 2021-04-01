@@ -47,7 +47,8 @@ namespace wooby
             Operator,
             String,
             Number,
-            Reference
+            Reference,
+            Null
         }
 
         public class Node
@@ -99,7 +100,7 @@ namespace wooby
         }
 
         public string FullText { get; set; }
-        public ColumnReference Identifier { get; set; }
+        public string Identifier { get; set; }
         public List<Node> Nodes { get; set; } = new List<Node>();
         public ExpressionType Type { get; set; } = ExpressionType.Unknown;
         public bool IsBoolean { get; set; } = false;
@@ -113,6 +114,11 @@ namespace wooby
 
             var tokens = Nodes.Where(p => p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight));
             return tokens.Any() && tokens.First().IsWildcard();
+        }
+
+        public bool IsOnlyReference()
+        {
+            return Nodes.Count == 1 && Nodes[0].Kind == NodeKind.Reference;
         }
 
         public override bool Equals(object obj)
@@ -150,6 +156,15 @@ namespace wooby
         {
             return HashCode.Combine(Schema, Table);
         }
+
+        public virtual string Join()
+        {
+            if (string.IsNullOrEmpty(Schema))
+            {
+                return Table;
+            }
+            else return $"{Schema}.{Table}";
+        }
     }
 
     public class ColumnReference : TableReference
@@ -166,6 +181,16 @@ namespace wooby
         public override int GetHashCode()
         {
             return HashCode.Combine(base.GetHashCode(), Schema, Table, Column);
+        }
+
+        public override string Join()
+        {
+            var b = base.Join();
+            // Column is guaranteed to be non empty
+            if (string.IsNullOrEmpty(b))
+            {
+                return Column;
+            } else return $"{b}.{Column}";
         }
     }
 
@@ -252,9 +277,74 @@ namespace wooby
 
     public class Compiler
     {
-        public List<Instruction> CompileCommand(Command command, Context context)
+        private static void CompileExpression(Expression expr, Context context, List<Instruction> target)
         {
-            throw new NotImplementedException();
+            if (expr.IsOnlyReference())
+            {
+                var reference = expr.Nodes[0].ReferenceValue;
+
+                if (string.IsNullOrEmpty(reference.Table))
+                {
+                    var variable = context.FindVariable(reference.Join());
+                    target.Add(new Instruction() { OpCode = OpCode.PushVariableToOutput, Arg1 = variable.Id });
+                } else
+                {
+                    var column = context.FindColumn(reference);
+                    target.Add(new Instruction()
+                    {
+                        OpCode = OpCode.PushColumnToOutput,
+                        Arg1 = column.Parent.Parent.Id,
+                        Arg2 = column.Parent.Id,
+                        Arg3 = column.Id
+                    });
+                }
+            } else
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        public static void CompileSelectCommand(SelectCommand command, Context context, List<Instruction> target)
+        {
+            var sourceTable = context.FindTable(command.MainSource);
+            if (sourceTable == null)
+            {
+                throw new InvalidOperationException("Invalid reference to main source of select command");
+            }
+
+            target.Add(new Instruction() { OpCode = OpCode.SelectSourceTable, Arg1 = sourceTable.Id });
+
+            foreach (var expr in command.OutputColumns)
+            {
+                target.Add(new Instruction() { OpCode = OpCode.AddOutputColumnDefinition, Str1 = expr.Identifier ?? "" });
+            }
+
+            target.Add(new Instruction() { OpCode = OpCode.PushCheckpointNext });
+            target.Add(new Instruction() { OpCode = OpCode.TrySeekElseSkip });
+            target.Add(new Instruction() { OpCode = OpCode.NewOutputRow });
+
+            foreach (var expr in command.OutputColumns)
+            {
+                CompileExpression(expr, context, target);
+            }
+
+            target.Add(new Instruction() { OpCode = OpCode.CheckpointEnd });
+
+            // TODO Filter conditions
+
+            // TODO Ordering
+        }
+
+        public static List<Instruction> CompileCommand(Command command, Context context)
+        {
+            var list = new List<Instruction>();
+
+            if (command is SelectCommand select)
+            {
+                CompileSelectCommand(select, context, list);
+            }
+
+            return list;
         }
     }
 }
