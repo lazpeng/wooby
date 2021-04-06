@@ -17,6 +17,6 @@ My "roadmap" is as follows:
 ## v0.3
 * Support for creating and dropping tables, inserting, updating and deleting rows from it. At this stage everything is still in-memory and no database data is written to the disk or persisted in any way
 
-### Current stage: v0.0
+### Current stage: v0.1
 
 I'll add more stuff as the project advances

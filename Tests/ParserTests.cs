@@ -68,29 +68,15 @@ namespace Tests
         [TestMethod]
         public void TestBasicColumnReference()
         {
-            var context = new Context();
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            context.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "table" };
+            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            ctx.AddTable(table);
 
             var input = "table.a";
 
-            var reference = new Parser().ParseReference(input, 0, context, false, true);
+            var reference = new Parser().ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { ResolveReferences = true });
             var expected = new ColumnReference() { Column = "a", Table = "table" };
-
-            Assert.AreEqual(reference, expected);
-        }
-
-        [TestMethod]
-        public void TestColumnReference()
-        {
-            var context = new Context();
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            context.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
-
-            var input = "main.table.a";
-
-            var reference = new Parser().ParseReference(input, 0, context, false, true);
-            var expected = new ColumnReference() { Schema = "main", Column = "a", Table = "table" };
 
             Assert.AreEqual(reference, expected);
         }
@@ -98,14 +84,13 @@ namespace Tests
         [TestMethod]
         public void TestTableReference()
         {
-            var context = new Context();
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            context.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+            var ctx = new Machine().Initialize();
+            ctx.AddTable(new TableMeta() { Name = "table" });
 
-            var input = "main.table";
+            var input = "table";
 
-            var reference = new Parser().ParseTableReference(input, 0, context, false);
-            var expected = new TableReference() { Table = "table", Schema = "main" };
+            var reference = new Parser().ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { TableOnly = true });
+            var expected = new ColumnReference() { Table = "table" };
 
             Assert.AreEqual(reference, expected);
         }
@@ -180,14 +165,14 @@ namespace Tests
             var input = "select * from table";
 
             var ctx = new Context();
-            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table" });
+            ctx.AddTable(new TableMeta() { Name = "table" });
 
             var command = new Parser().ParseCommand(input, ctx);
             Assert.IsTrue(command is SelectCommand);
 
             var expected = new SelectCommand()
             {
-                MainSource = new TableReference() { Table = "table" }
+                MainSource = new ColumnReference() { Table = "table" }
             };
 
             expected.OutputColumns.Add(new Expression()
@@ -210,14 +195,14 @@ namespace Tests
 
             var ctx = new Context();
             var column = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { column } });
+            ctx.Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { column } });
 
             var command = new Parser().ParseCommand(input, ctx);
             Assert.IsTrue(command is SelectCommand);
 
             var expected = new SelectCommand()
             {
-                MainSource = new TableReference() { Table = "table" },
+                MainSource = new ColumnReference() { Table = "table" },
                 OutputOrder = new Ordering()
                 {
                     Kind = OrderingKind.Descending,
@@ -267,18 +252,18 @@ namespace Tests
         {
             var input = "select CURRENT_DATE, a, table.b from table";
 
-            var ctx = new Context();
-            ctx.Variables.Add(new GlobalVariable() { Name = "CURRENT_DATE", Type = ColumnType.String });
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            var b = new ColumnMeta() { Name = "b", Type = ColumnType.String };
-            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a, b } });
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "table" };
+            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            ctx.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.String }, table);
+            ctx.AddTable(table);
 
             var command = new Parser().ParseCommand(input, ctx);
             Assert.IsTrue(command is SelectCommand);
 
             var expected = new SelectCommand()
             {
-                MainSource = new TableReference() { Table = "table" }
+                MainSource = new ColumnReference() { Table = "table" }
             };
 
             expected.OutputColumns.Add(new Expression()
@@ -320,11 +305,12 @@ namespace Tests
         [TestMethod]
         public void TestNullExpression()
         {
-            var input = "NULL";
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "table" };
+            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            ctx.AddTable(table);
 
-            var ctx = new Context();
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+            var input = "NULL";
 
             var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true);
 
@@ -338,9 +324,10 @@ namespace Tests
         {
             var input = "table.a as name FROM";
 
-            var ctx = new Context();
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "table" };
+            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            ctx.AddTable(table);
 
             var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags() { IdentifierAllowed = true }, true);
 
@@ -353,9 +340,10 @@ namespace Tests
         {
             var input = "table.a";
 
-            var ctx = new Context();
-            var a = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            ctx.Schemas[0].Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { a } });
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "table" };
+            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            ctx.AddTable(table);
 
             var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true);
 

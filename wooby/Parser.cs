@@ -74,6 +74,14 @@ namespace wooby
             public bool IdentifierAllowed = false;
         }
 
+        public class ReferenceFlags
+        {
+            public bool WildcardAllowed = false;
+            public bool ResolveReferences = false;
+            public bool AliasAllowed = false;
+            public bool TableOnly = false;
+        }
+
         private TokenKind PeekToken(string input, int offset)
         {
             var first = input[offset];
@@ -93,7 +101,7 @@ namespace wooby
             else return TokenKind.None;
         }
 
-        private List<TableReference> CurrentSources { get; } = new List<TableReference>();
+        private List<ColumnReference> CurrentSources { get; } = new List<ColumnReference>();
 
         private static int SkipWhitespace(string input, int offset)
         {
@@ -269,7 +277,7 @@ namespace wooby
             offset += SkipWhitespace(input, offset);
             if (operatorDict.TryGetValue(input[offset], out Operator op))
             {
-                return new Token { Kind = TokenKind.Operator, OperatorValue = op, InputLength = offset - original + 1 };
+                return new Token { Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(), InputLength = offset - original + 1 };
             }
             else
             {
@@ -307,6 +315,10 @@ namespace wooby
                 if (column != null)
                 {
                     nodeType = Expression.ColumnTypeToExpressionType(column.Type);
+                }
+                else if (node.ReferenceValue.Column == "*")
+                {
+                    nodeType = Expression.ExpressionType.Unknown;
                 }
                 else
                 {
@@ -354,6 +366,8 @@ namespace wooby
             bool lastWasOperator = true;
             bool first = true;
 
+            var referenceFlags = new ReferenceFlags() { ResolveReferences = resolveReferences };
+
             do
             {
                 var token = NextToken(input, offset);
@@ -394,7 +408,6 @@ namespace wooby
                         token = NextToken(input, offset);
                         if (token.Kind == TokenKind.Comma)
                         {
-                            offset += token.InputLength;
                             break;
                         }
                         else if (token.Kind == TokenKind.Keyword)
@@ -503,7 +516,8 @@ namespace wooby
                     {
                         offset -= token.InputLength;
                         // Only allow table wildcards (e.g. tablename.*) on root scope, when no other value or operator was provided
-                        var symbol = ParseReference(input, offset, context, root && expr.Nodes.Count == 0 && flags.WildcardAllowed, resolveReferences);
+                        referenceFlags.WildcardAllowed = root && expr.Nodes.Count == 0 && flags.WildcardAllowed;
+                        var symbol = ParseReference(input, offset, context, referenceFlags);
                         var symNode = new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = symbol };
 
                         if (resolveReferences)
@@ -566,9 +580,61 @@ namespace wooby
             return expr;
         }
 
-        public TableReference ParseTableReference(string input, int offset, Context context, bool resolve)
+        private void SanitizeReference(ColumnReference reference, Context context)
         {
-            var reference = new TableReference();
+            if (string.IsNullOrEmpty(reference.Column))
+            {
+                if (CurrentSources.Find(r => r.Table == reference.Table && r.Identifier == reference.Identifier) != null)
+                {
+                    throw new Exception("Duplicated table reference");
+                }
+
+                if (context.FindTable(reference) != null)
+                {
+                    CurrentSources.Add(reference);
+                }
+            } else
+            {
+
+                if (string.IsNullOrEmpty(reference.Table))
+                {
+                    var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => t.Columns.Find(c => c.Name == reference.Column) != null);
+
+                    if (results.Count() > 1)
+                    {
+                        throw new Exception($"Ambiguous column name \"{reference.Column}\"");
+                    }
+                    else if (!results.Any())
+                    {
+                        throw new Exception("Unresolved reference to column");
+                    }
+
+                    reference.Table = results.First().Name;
+                }
+                else
+                {
+                    var table = CurrentSources.Find(r => r.Identifier == reference.Table);
+                    if (table == null)
+                    {
+                        throw new Exception("Unresolved reference to table");
+                    }
+
+                    reference.Table = table.Table;
+                    if (reference.Column != "*")
+                    {
+                        var meta = context.FindTable(table);
+                        if (meta.Columns.Find(c => c.Name == reference.Column) == null)
+                        {
+                            throw new Exception("Unresolved reference to column");
+                        }
+                    }
+                }
+            }
+        }
+
+        public ColumnReference ParseReference(string input, int offset, Context context, ReferenceFlags flags)
+        {
+            var reference = new ColumnReference();
 
             int originalOffset = offset;
 
@@ -576,26 +642,65 @@ namespace wooby
             {
                 var token = NextToken(input, offset);
                 offset += token.InputLength;
-                if (token.Kind != TokenKind.Symbol)
+                if (token.Kind == TokenKind.None)
+                {
+                    break;
+                } else if (token.Kind != TokenKind.Symbol && (token.Kind != TokenKind.Operator || token.OperatorValue != Operator.Asterisk))
                 {
                     throw new Exception("Expected valid symbol for reference");
                 }
 
-
-                if (string.IsNullOrEmpty(reference.Table))
+                if (string.IsNullOrEmpty(reference.Column))
                 {
-                    reference.Table = token.StringValue;
+                    reference.Column = token.StringValue;
                 }
-                else if (string.IsNullOrEmpty(reference.Schema))
+                else if (string.IsNullOrEmpty(reference.Table))
                 {
-                    reference.Schema = reference.Table;
-                    reference.Table = token.StringValue;
+                    reference.Table = reference.Column;
+
+                    if (token.Kind == TokenKind.Operator && token.OperatorValue == Operator.Asterisk)
+                    {
+                        if (!flags.WildcardAllowed)
+                        {
+                            throw new Exception("Unexpected wildcard in context where it's not permitted");
+                        }
+
+                        reference.Column = "*";
+                    }
+                    else if (token.Kind != TokenKind.Symbol)
+                    {
+                        throw new Exception("Unexpected token after . in reference");
+                    }
+                    else
+                    {
+                        reference.Column = token.StringValue;
+                    }
                     break;
                 }
 
                 token = NextToken(input, offset);
                 if (token != null && token.Kind == TokenKind.Dot)
                 {
+                    offset += token.InputLength;
+                }
+                else if ((token.Kind == TokenKind.Keyword && token.KeywordValue == Keyword.As) || token.Kind == TokenKind.Symbol)
+                {
+                    if (token.Kind == TokenKind.Keyword)
+                    {
+                        offset += token.InputLength;
+                        if (!flags.AliasAllowed)
+                        {
+                            throw new Exception("Illegal alias in reference");
+                        }
+
+                        token = NextToken(input, offset);
+                        if (token.Kind != TokenKind.Symbol)
+                        {
+                            throw new Exception("Expected symbol after AS keyword");
+                        }
+                    }
+
+                    reference.Identifier = token.StringValue;
                     offset += token.InputLength;
                 }
                 else
@@ -606,85 +711,26 @@ namespace wooby
 
             reference.InputLength = offset - originalOffset;
 
-            if (resolve && !context.IsReferenceValid(reference))
+            if (string.IsNullOrEmpty(reference.Table) && flags.TableOnly)
             {
-                throw new Exception("Unresolved reference");
-            }
+                reference.Table = reference.Column;
+                reference.Column = "";
 
-            return reference;
-        }
-
-        private void SanitizeReference(ColumnReference reference, Context context)
-        {
-            if (string.IsNullOrEmpty(reference.Table) && !context.IsReferenceValid(reference))
-            {
-                var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => context.FindColumn(new ColumnReference() { Table = t.Name, Column = reference.Column }) != null);
-
-                if (results.Count() > 1)
+                if (string.IsNullOrEmpty(reference.Identifier))
                 {
-                    throw new Exception($"Ambiguous column name \"{reference.Column}\"");
-                }
-                else if (!results.Any())
-                {
-                    throw new Exception("Unresolved reference");
-                }
-
-                reference.Table = results.First().Name;
-            }
-
-            if (!context.IsReferenceValid(reference))
-            {
-                throw new Exception("Unresolved column reference");
-            }
-        }
-
-        public ColumnReference ParseReference(string input, int offset, Context context, bool allowWildcard, bool resolveReferences)
-        {
-            int originalOffset = offset;
-            var table = ParseTableReference(input, offset, context, false);
-            offset += table.InputLength;
-            ColumnReference reference;
-
-            var token = NextToken(input, offset);
-            if (token.Kind != TokenKind.Dot)
-            {
-                reference = new() { Column = table.Table, Table = table.Schema };
-            }
-            else
-            {
-                offset += token.InputLength;
-                token = NextToken(input, offset);
-                offset += token.InputLength;
-
-                if (token.Kind == TokenKind.Operator && token.OperatorValue == Operator.Asterisk)
-                {
-                    if (!allowWildcard)
-                    {
-                        throw new Exception("Unexpected wildcard in context where it's not permitted");
-                    }
-                    else if (table.Table == "*")
-                    {
-                        throw new Exception("Malformed column reference: Expected table name but a wildcard was provided");
-                    }
-
-                    reference = new() { Column = "*", Schema = table.Schema, Table = table.Table };
-                }
-                else if (token.Kind != TokenKind.Symbol)
-                {
-                    throw new Exception("Unexpected token after . in reference");
-                }
-                else
-                {
-                    reference = new() { Column = token.StringValue, Schema = table.Schema, Table = table.Table };
+                    reference.Identifier = reference.Table;
                 }
             }
 
-            if (resolveReferences)
+            if (flags.TableOnly && !string.IsNullOrEmpty(reference.Column))
+            {
+                throw new Exception("Expected table name");
+            }
+
+            if (flags.ResolveReferences)
             {
                 SanitizeReference(reference, context);
             }
-
-            reference.InputLength = offset - originalOffset;
 
             return reference;
         }
@@ -730,7 +776,7 @@ namespace wooby
 
                 var expr = ParseExpression(input, offset, context, exprFlags, false);
 
-                if (command.OutputColumns.Count > 0 && expr.IsWildcard())
+                if (command.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
                 {
                     throw new Exception("Unexpected token *");
                 }
@@ -742,10 +788,10 @@ namespace wooby
                 exprFlags.GeneralWildcardAllowed = false;
             } while (true);
 
-            var source = ParseTableReference(input, offset, context, true);
+            var source = ParseReference(input, offset, context, new ReferenceFlags() { TableOnly = true });
             CurrentSources.Add(source);
 
-            foreach (var expr in command.OutputColumns.Where(e => e.Type == Expression.ExpressionType.Unknown))
+            foreach (var expr in command.OutputColumns.Where(e => e.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference)))
             {
                 ResolveUnresolvedReferences(expr, context);
             }

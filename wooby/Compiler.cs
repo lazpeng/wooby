@@ -112,8 +112,8 @@ namespace wooby
                 return false;
             }
 
-            var tokens = Nodes.Where(p => p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight));
-            return tokens.Any() && tokens.First().IsWildcard();
+            var nodes = Nodes.Where(p => (p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight)) || p.Kind == NodeKind.Reference);
+            return nodes.Any() && nodes.First().IsWildcard();
         }
 
         public bool IsOnlyReference()
@@ -139,58 +139,33 @@ namespace wooby
         }
     }
 
-    public class TableReference
+    public class ColumnReference
     {
-        public string Schema { get; set; } = "";
         public string Table { get; set; } = "";
+        public string Column { get; set; } = "";
+        public string Identifier { get; set; } = "";
         public int InputLength { get; set; }
 
         public override bool Equals(object obj)
         {
-            return obj is TableReference reference &&
-                   Schema == reference.Schema &&
-                   Table == reference.Table;
-        }
-
-        public override int GetHashCode()
-        {
-            return HashCode.Combine(Schema, Table);
-        }
-
-        public virtual string Join()
-        {
-            if (string.IsNullOrEmpty(Schema))
-            {
-                return Table;
-            }
-            else return $"{Schema}.{Table}";
-        }
-    }
-
-    public class ColumnReference : TableReference
-    {
-        public string Column { get; set; } = "";
-
-        public override bool Equals(object obj)
-        {
             return obj is ColumnReference reference &&
-                    base.Equals(obj) &&
+                    Table == reference.Column &&
                     Column == reference.Column;
         }
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(base.GetHashCode(), Schema, Table, Column);
+            return HashCode.Combine(base.GetHashCode(), Table, Column);
         }
 
-        public override string Join()
+        public string Join()
         {
-            var b = base.Join();
             // Column is guaranteed to be non empty
-            if (string.IsNullOrEmpty(b))
+            if (string.IsNullOrEmpty(Table))
             {
                 return Column;
-            } else return $"{b}.{Column}";
+            }
+            else return $"{Table}.{Column}";
         }
     }
 
@@ -251,7 +226,7 @@ namespace wooby
         }
 
         public List<Expression> OutputColumns { get; private set; } = new List<Expression>();
-        public TableReference MainSource { get; set; }
+        public ColumnReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
         public Ordering OutputOrder { get; set; }
 
@@ -277,30 +252,166 @@ namespace wooby
 
     public class Compiler
     {
-        private static void CompileExpression(Expression expr, Context context, List<Instruction> target)
+        private static Instruction GetValuePushInstruction(Expression.Node node, Context context)
+        {
+            var inst = new Instruction();
+
+            switch (node.Kind)
+            {
+                case Expression.NodeKind.Number:
+                    inst.Num1 = node.NumberValue;
+                    inst.OpCode = OpCode.PushNumber;
+                    break;
+                case Expression.NodeKind.String:
+                    inst.Str1 = node.StringValue;
+                    inst.OpCode = OpCode.PushString;
+                    break;
+                case Expression.NodeKind.Reference:
+                    var col = context.FindColumn(node.ReferenceValue);
+                    if (col != null)
+                    {
+                        inst.OpCode = OpCode.PushColumn;
+                        inst.Arg1 = col.Parent.Id;
+                        inst.Arg2 = col.Id;
+                    } else
+                    {
+                        var v = context.FindVariable(node.ReferenceValue.Column);
+                        if (v != null)
+                        {
+                            inst.OpCode = OpCode.PushVariable;
+                            inst.Arg1 = v.Id;
+                        } else throw new InvalidOperationException();
+                    }
+                    break;
+            }
+
+            return inst;
+        }
+
+        private static OpCode GetOpcodeForOperator(Operator op)
+        {
+            return op switch
+            {
+                Operator.Asterisk => OpCode.Mul,
+                Operator.Plus => OpCode.Sum,
+                Operator.Minus => OpCode.Sub,
+                Operator.ForwardSlash => OpCode.Div,
+                _ => throw new ArgumentException()
+            };
+        }
+
+        private static int CompileSubExpression(int offset, Expression expr, Context context, List<Instruction> target)
+        {
+            var temp = new List<Instruction>();
+
+            var opStack = new Stack<Operator>();
+            var lastWasPrecedence = false;
+
+            int i;
+            for (i = offset; i < expr.Nodes.Count; ++i)
+            {
+                var node = expr.Nodes[i];
+
+                if (lastWasPrecedence)
+                {
+                    temp.Add(GetValuePushInstruction(node, context));
+                    temp.Add(new Instruction() { OpCode = GetOpcodeForOperator(opStack.Pop()) });
+                }
+                else if (node.Kind == Expression.NodeKind.Operator)
+                {
+                    if (node.OperatorValue == Operator.ParenthesisLeft)
+                    {
+                        i = CompileSubExpression(i + 1, expr, context, target);
+                    } else if (node.OperatorValue == Operator.ParenthesisRight)
+                    {
+                        break;
+                    }
+
+                    opStack.Push(node.OperatorValue);
+
+                    switch (node.OperatorValue)
+                    {
+                        case Operator.Asterisk:
+                        case Operator.ForwardSlash:
+                            lastWasPrecedence = true;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                else
+                {
+                    temp.Add(GetValuePushInstruction(node, context));
+                }
+            }
+
+            while (opStack.Count > 0)
+            {
+                temp.Add(new Instruction() { OpCode = GetOpcodeForOperator(opStack.Pop()) });
+            }
+
+            target.AddRange(temp);
+            return i;
+        }
+
+        private static void CompileExpression(SelectCommand command, Expression expr, Context context, List<Instruction> target)
         {
             if (expr.IsOnlyReference())
             {
                 var reference = expr.Nodes[0].ReferenceValue;
 
-                if (string.IsNullOrEmpty(reference.Table))
+                if (expr.IsWildcard())
                 {
-                    var variable = context.FindVariable(reference.Join());
-                    target.Add(new Instruction() { OpCode = OpCode.PushVariableToOutput, Arg1 = variable.Id });
-                } else
+                    var table = context.FindTable(reference);
+
+                    foreach (var col in table.Columns)
+                    {
+                        target.Add(new Instruction()
+                        {
+                            OpCode = OpCode.PushColumnToOutput,
+                            Arg1 = col.Parent.Id,
+                            Arg2 = col.Id
+                        });
+                    }
+                }
+                else
                 {
-                    var column = context.FindColumn(reference);
+                    if (string.IsNullOrEmpty(reference.Table))
+                    {
+                        var variable = context.FindVariable(reference.Join());
+                        target.Add(new Instruction() { OpCode = OpCode.PushVariableToOutput, Arg1 = variable.Id });
+                    }
+                    else
+                    {
+                        var column = context.FindColumn(reference);
+                        target.Add(new Instruction()
+                        {
+                            OpCode = OpCode.PushColumnToOutput,
+                            Arg1 = column.Parent.Id,
+                            Arg2 = column.Id
+                        });
+                    }
+                }
+            }
+            else if (expr.IsWildcard())
+            {
+                // Push columns for all tables in select command
+
+                foreach (var col in context.FindTable(command.MainSource).Columns)
+                {
                     target.Add(new Instruction()
                     {
                         OpCode = OpCode.PushColumnToOutput,
-                        Arg1 = column.Parent.Parent.Id,
-                        Arg2 = column.Parent.Id,
-                        Arg3 = column.Id
+                        Arg1 = col.Parent.Id,
+                        Arg2 = col.Id
                     });
                 }
-            } else
+            }
+            else
             {
-                throw new NotImplementedException();
+                CompileSubExpression(0, expr, context, target);
+
+                target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOutput });
             }
         }
 
@@ -316,7 +427,46 @@ namespace wooby
 
             foreach (var expr in command.OutputColumns)
             {
-                target.Add(new Instruction() { OpCode = OpCode.AddOutputColumnDefinition, Str1 = expr.Identifier ?? "" });
+                if (expr.IsWildcard())
+                {
+                    if (expr.IsOnlyReference())
+                    {
+                        var reference = expr.Nodes[0].ReferenceValue;
+
+                        var table = context.FindTable(reference);
+
+                        foreach (var col in table.Columns)
+                        {
+                            target.Add(new Instruction()
+                            {
+                                OpCode = OpCode.AddOutputColumnDefinition,
+                                Str1 = col.Name
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Push columns for all tables in select command
+
+                        foreach (var col in context.FindTable(command.MainSource).Columns)
+                        {
+                            target.Add(new Instruction()
+                            {
+                                OpCode = OpCode.AddOutputColumnDefinition,
+                                Str1 = col.Name
+                            });
+                        }
+                    }
+                }
+                else
+                {
+                    var id = expr.Identifier;
+                    if (string.IsNullOrEmpty(id))
+                    {
+                        id = expr.FullText;
+                    }
+                    target.Add(new Instruction() { OpCode = OpCode.AddOutputColumnDefinition, Str1 = id });
+                }
             }
 
             target.Add(new Instruction() { OpCode = OpCode.PushCheckpointNext });
@@ -325,7 +475,7 @@ namespace wooby
 
             foreach (var expr in command.OutputColumns)
             {
-                CompileExpression(expr, context, target);
+                CompileExpression(command, expr, context, target);
             }
 
             target.Add(new Instruction() { OpCode = OpCode.CheckpointEnd });
