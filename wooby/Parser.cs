@@ -40,18 +40,32 @@ namespace wooby
             { "AS", Keyword.As }
         };
 
-        private readonly Dictionary<char, Operator> operatorDict = new()
+        private readonly Dictionary<string, Operator> operatorDict = new()
         {
-            { '+', Operator.Plus },
-            { '-', Operator.Minus },
-            { '/', Operator.ForwardSlash },
-            { '*', Operator.Asterisk },
-            { '(', Operator.ParenthesisLeft },
-            { ')', Operator.ParenthesisRight },
-            { '^', Operator.Power },
-            { '<', Operator.LessThan },
-            { '>', Operator.MoreThan },
-            { '=', Operator.Equal }
+            { "+", Operator.Plus },
+            { "-", Operator.Minus },
+            { "/", Operator.ForwardSlash },
+            { "*", Operator.Asterisk },
+            { "(", Operator.ParenthesisLeft },
+            { ")", Operator.ParenthesisRight },
+            { "^", Operator.Power },
+            { "<", Operator.LessThan },
+            { ">", Operator.MoreThan },
+            { "=", Operator.Equal },
+            { "<>", Operator.NotEqual },
+            { "!=", Operator.NotEqual },
+            { "<=", Operator.LessEqual },
+            { ">=", Operator.MoreEqual },
+        };
+
+        private readonly Operator[] booleanOperators = new Operator[]
+        {
+            Operator.Equal,
+            Operator.LessThan,
+            Operator.MoreThan,
+            Operator.NotEqual,
+            Operator.LessEqual,
+            Operator.MoreEqual,
         };
 
         public class Token
@@ -94,7 +108,7 @@ namespace wooby
             {
                 return TokenKind.Symbol;
             }
-            else if (operatorDict.ContainsKey(first))
+            else if (operatorDict.ContainsKey(input.Substring(offset, 1)) || operatorDict.ContainsKey(input.Substring(offset, 2)))
             {
                 return TokenKind.Operator;
             }
@@ -275,9 +289,12 @@ namespace wooby
         {
             var original = offset;
             offset += SkipWhitespace(input, offset);
-            if (operatorDict.TryGetValue(input[offset], out Operator op))
+            if (operatorDict.TryGetValue(input.Substring(offset, 2), out Operator op))
             {
-                return new Token { Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(), InputLength = offset - original + 1 };
+                return new Token { Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(), InputLength = offset - original + 2 };
+            } else if (operatorDict.TryGetValue(input.Substring(offset, 1), out Operator o))
+            {
+                return new Token { Kind = TokenKind.Operator, OperatorValue = o, StringValue = input[offset].ToString(), InputLength = offset - original + 1 };
             }
             else
             {
@@ -475,7 +492,7 @@ namespace wooby
 
                     lastWasOperator = true;
 
-                    if (token.OperatorValue == Operator.Equal)
+                    if (booleanOperators.Contains(token.OperatorValue))
                     {
                         expr.IsBoolean = true;
                     }
