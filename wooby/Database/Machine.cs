@@ -4,283 +4,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace wooby
+using wooby.Parsing;
+
+namespace wooby.Database
 {
-    public enum ValueKind
-    {
-        Text,
-        Number,
-        Boolean,
-        Null,
-    }
-
-    public class ColumnValue
-    {
-        public ValueKind Kind { get; set; }
-        public string Text { get; set; }
-        public double Number { get; set; }
-        public bool Boolean { get; set; }
-
-        public string PrettyPrint()
-        {
-            return Kind switch
-            {
-                ValueKind.Null => "",
-                ValueKind.Number => $"{Number}",
-                ValueKind.Text => Text,
-                ValueKind.Boolean => Boolean ? "TRUE" : "FALSE",
-                _ => ""
-            };
-        }
-    }
-
-    public class OutputColumnMeta
-    {
-        public string OutputName { get; set; }
-        public ValueKind Kind { get; set; }
-        public bool Visible { get; set; }
-    }
-
-    public class Output
-    {
-        public List<OutputColumnMeta> Definition { get; set; } = new List<OutputColumnMeta>();
-        public List<List<ColumnValue>> Rows { get; set; } = new List<List<ColumnValue>>();
-    }
-
-    public abstract class DynamicVariable
-    {
-        public abstract ColumnValue WhenCalled(ExecutionContext context);
-        public ColumnType ResultType { get; protected set; }
-        public string Name { get; protected set; }
-        public readonly long Id;
-
-        public DynamicVariable(long Id)
-        {
-            this.Id = Id;
-        }
-    }
-
-    class CurrentDate_Variable : DynamicVariable
-    {
-        public CurrentDate_Variable(long Id) : base(Id)
-        {
-            Name = "CURRENT_DATE";
-            ResultType = ColumnType.String;
-        }
-
-        public override ColumnValue WhenCalled(ExecutionContext _)
-        {
-            var currentDate = DateTime.Now.ToString("u");
-            return new ColumnValue() { Kind = ValueKind.Text, Text = currentDate };
-        }
-    }
-
-    class DatabaseName_Variable : DynamicVariable
-    {
-        public DatabaseName_Variable(long Id) : base(Id)
-        {
-            Name = "DBNAME";
-            ResultType = ColumnType.String;
-        }
-
-        public override ColumnValue WhenCalled(ExecutionContext _)
-        {
-            return new ColumnValue() { Kind = ValueKind.Text, Text = "wooby" };
-        }
-    }
-
-    public interface ITableDataProvider
-    {
-        void Reset();
-        bool SeekNext();
-        ColumnValue GetColumn(int index);
-        long RowId();
-        bool Seek(long RowId);
-        List<ColumnValue> WholeRow();
-    }
-
-    public class Dual_DataProvider : ITableDataProvider
-    {
-        public ColumnValue GetColumn(int index)
-        {
-            return null;
-        }
-
-        public void Reset()
-        {
-            // Stub
-        }
-
-        public long RowId()
-        {
-            return -1;
-        }
-
-        public bool Seek(long RowId)
-        {
-            return false;
-        }
-
-        public bool SeekNext()
-        {
-            return false;
-        }
-
-        public List<ColumnValue> WholeRow()
-        {
-            return null;
-        }
-    }
-
-    public class LoveLive_DataProvider : ITableDataProvider
-    {
-        private class Group
-        {
-            public string Nome;
-            public int Ano;
-            public int NumIntegrantes;
-        }
-
-        private List<Group> grupos = new()
-        {
-            new Group() { Nome = "μ's", Ano = 2010, NumIntegrantes = 9 },
-            new Group() { Nome = "Aqours", Ano = 2016, NumIntegrantes = 9 },
-            new Group() { Nome = "Nijigasaki School Idol Club", Ano = 2017, NumIntegrantes = 10 },
-            new Group() { Nome = "Liella", Ano = 2020, NumIntegrantes = 5 },
-        };
-
-        private int cursor = -1;
-
-        public ColumnValue GetColumn(int index)
-        {
-            if (cursor < 0)
-            {
-                throw new InvalidOperationException();
-            }
-
-            var grupo = grupos[cursor];
-
-            return index switch
-            {
-                0 => new ColumnValue() { Kind = ValueKind.Text, Text = grupo.Nome },
-                1 => new ColumnValue() { Kind = ValueKind.Number, Number = grupo.Ano },
-                2 => new ColumnValue() { Kind = ValueKind.Number, Number = grupo.NumIntegrantes },
-                _ => throw new InvalidOperationException()
-            };
-        }
-
-        public void Reset()
-        {
-            cursor = -1;
-        }
-
-        public long RowId()
-        {
-            return cursor;
-        }
-
-        public bool Seek(long RowId)
-        {
-            if (RowId < grupos.Count)
-            {
-                cursor = (int)RowId;
-                return true;
-            }
-            else return false;
-        }
-
-        public bool SeekNext()
-        {
-            return ++cursor < grupos.Count;
-        }
-
-        public List<ColumnValue> WholeRow()
-        {
-            if (cursor < 0)
-            {
-                throw new InvalidOperationException();
-            }
-
-            var grupo = grupos[cursor];
-
-            return new()
-            {
-                new ColumnValue() { Kind = ValueKind.Text, Text = grupo.Nome },
-                new ColumnValue() { Kind = ValueKind.Number, Number = grupo.Ano },
-                new ColumnValue() { Kind = ValueKind.Number, Number = grupo.NumIntegrantes }
-            };
-        }
-    }
-
-    public class TableData
-    {
-        public TableMeta Meta { get; set; }
-        public ITableDataProvider DataProvider { get; set; }
-    }
-
-    public enum OpCode : int
-    {
-        SelectSourceTable = 0,
-        PushCheckpointNext,
-        CheckpointEnd,
-        NewOutputRow,
-        PushColumnToOutput,
-        PushVariableToOutput,
-        TrySeekElseSkip,
-        SkipToNextAndPopIfNotTrue,
-        SortByOutputAsc,
-        SortByOutputDesc,
-        AddOutputColumnDefinition,
-        PushNumber,
-        PushString,
-        PushColumn,
-        PushVariable,
-        Sum,
-        Sub,
-        Div,
-        Mul,
-        Concat,
-        Eq,
-        NEq,
-        LessEq,
-        Less,
-        MoreEq,
-        More,
-        AuxLessNumber,
-        AuxLessEqNumber,
-        AuxMoreNumber,
-        AuxMoreEqNumber,
-        AuxEqualNumber,
-        PushStackTopToOutput,
-        ResetAllProviders,
-    }
-
-    public class Instruction
-    {
-        public OpCode OpCode { get; set; }
-        public long Arg1 { get; set; }
-        public long Arg2 { get; set; }
-        public long Arg3 { get; set; }
-        public string Str1 { get; set; }
-        public double Num1 { get; set; }
-    }
-
-    public class ExecutionContext
-    {
-        public Output QueryOutput { get; } = new Output();
-        public int RowsAffected { get; set; } = 0;
-        public Context Context { get; }
-        public TableData MainSource { get; set; }
-        public Stack<long> Checkpoints { get; set; } = new Stack<long>();
-        public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
-        public bool LastComparisionResult { get; set; } = false;
-
-        public ExecutionContext(Context ctx)
-        {
-            Context = ctx;
-        }
-    }
-
     public class Machine
     {
         private List<DynamicVariable> Variables { get; set; }
@@ -305,6 +32,7 @@ namespace wooby
             {
                 new CurrentDate_Variable(id++),
                 new DatabaseName_Variable(id++),
+                new RowNum_Variable(id++),
             };
 
             foreach (var v in Variables)
@@ -354,19 +82,6 @@ namespace wooby
             {
                 context.QueryOutput.Rows.RemoveAt(0);
             }
-        }
-
-        private static int SkipUntilNextEnd(List<Instruction> instructions, int current)
-        {
-            do
-            {
-                if (instructions[current++].OpCode == OpCode.CheckpointEnd || current == instructions.Count - 1)
-                {
-                    break;
-                }
-            } while (true);
-
-            return current - 1;
         }
 
         private static void PushToOutput(ExecutionContext context, ColumnValue value)
@@ -493,7 +208,7 @@ namespace wooby
             return result;
         }
 
-        private static ColumnValue More(ExecutionContext context, bool orEqual)
+        private static ColumnValue Greater(ExecutionContext context, bool orEqual)
         {
             var right = context.Stack.Pop();
             var left = context.Stack.Pop();
@@ -541,7 +256,7 @@ namespace wooby
                 throw new Exception("Invalid operation between strings");
             }
 
-            throw new ArgumentException();
+            throw new ArgumentException("Invalid arguments for division");
         }
 
         private static ColumnValue Multiply(ExecutionContext context)
@@ -563,7 +278,7 @@ namespace wooby
                 throw new ArgumentException("Invalid operation between strings");
             }
 
-            throw new ArgumentException();
+            throw new ArgumentException("Invalid arguments for multiplication");
         }
 
         private static ColumnValue Sub(ExecutionContext context)
@@ -585,51 +300,137 @@ namespace wooby
                 throw new Exception("Invalid operation between strings");
             }
 
-            throw new ArgumentException();
+            throw new ArgumentException("Invalid arguments provided for subtraction");
         }
 
-        public ExecutionContext Execute(List<Instruction> instructions)
+        private void PrepareQueryOutput(ExecutionContext exec, SelectStatement query, Expression expr)
+        {
+            if (expr.IsWildcard())
+            {
+                if (expr.IsOnlyReference())
+                {
+                    var reference = expr.Nodes[0].ReferenceValue;
+
+                    var table = Context.FindTable(reference);
+
+                    foreach (var col in table.Columns)
+                    {
+                        exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = col.Name, Visible = true });
+                    }
+                }
+                else
+                {
+                    // Push columns for all tables in select command
+
+                    foreach (var col in Context.FindTable(query.MainSource).Columns)
+                    {
+                        exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = col.Name, Visible = true });
+                    }
+                }
+            }
+            else
+            {
+                var id = expr.Identifier;
+                if (string.IsNullOrEmpty(id))
+                {
+                    id = expr.FullText;
+                }
+
+                exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = id, Visible = true });
+            }
+        }
+
+        private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
+        {
+            // Compile all expressions
+            var outputExpressions = new List<Instruction>();
+
+            foreach (var output in query.OutputColumns)
+            {
+                Compiler.CompileExpression(query, output, Context, outputExpressions);
+
+                // Prepare the output columns
+
+                PrepareQueryOutput(exec, query, output);
+            }
+
+            var filter = new List<Instruction>();
+            if (query.FilterConditions != null)
+            {
+                Compiler.CompileExpression(query, query.FilterConditions, Context, filter);
+            }
+
+            // Select source
+
+            var sourceId = Context.FindTable(query.MainSource).Id;
+            exec.MainSource = Tables.Find(t => t.Meta.Id == sourceId);
+            exec.MainSource.DataProvider.Reset();
+
+            // First, filter all columns in the source if a filter was specified
+
+            if (query.FilterConditions != null)
+            {
+                var filteredRows = new List<long>();
+
+                do
+                {
+                    if (!exec.MainSource.DataProvider.SeekNext())
+                    {
+                        break;
+                    }
+
+                    Execute(filter, exec);
+
+                    if (exec.Stack.TryPop(out ColumnValue value))
+                    {
+                        if (value.Kind == ValueKind.Boolean && value.Boolean)
+                        {
+                            filteredRows.Add(exec.MainSource.DataProvider.RowId());
+                        }
+                    }
+                } while (true);
+
+                // Revisit all filtered rows and select the results
+
+                foreach (var rowid in filteredRows)
+                {
+                    exec.MainSource.DataProvider.Seek(rowid);
+
+                    exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                    Execute(outputExpressions, exec);
+                }
+            } else
+            {
+                while (exec.MainSource.DataProvider.SeekNext())
+                {
+                    exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                    Execute(outputExpressions, exec);
+                }
+            }
+
+            CheckOutputRows(exec);
+        }
+
+        public ExecutionContext Execute(Statement command)
         {
             var exec = new ExecutionContext(Context);
 
+            if (command is SelectStatement query)
+            {
+                ExecuteQuery(exec, query);
+            }
+
+            return exec;
+        }
+
+        public void Execute(List<Instruction> instructions, ExecutionContext exec)
+        {
             for (int i = 0; i < instructions.Count; ++i)
             {
                 var instruction = instructions[i];
 
                 switch (instruction.OpCode)
                 {
-                    case OpCode.SelectSourceTable:
-                        if (exec.MainSource != null)
-                        {
-                            throw new InvalidOperationException("MainSource is already set");
-                        }
-
-                        exec.MainSource = Tables.Find(t => t.Meta.Id == instruction.Arg1);
-                        if (exec.MainSource == null)
-                        {
-                            throw new Exception("SelectSourceTable: Could not find source table with given id");
-                        }
-                        break;
-                    case OpCode.PushCheckpointNext:
-                        exec.Checkpoints.Push(i);
-                        break;
-                    case OpCode.TrySeekElseSkip:
-                        if (!exec.MainSource.DataProvider.SeekNext() && exec.QueryOutput.Rows.Count > 0)
-                        {
-                            i = SkipUntilNextEnd(instructions, i);
-                            continue;
-                        }
-                        break;
-                    case OpCode.NewOutputRow:
-                        exec.QueryOutput.Rows.Add(new List<ColumnValue>());
-                        break;
-                    case OpCode.AddOutputColumnDefinition:
-                        var definition = new OutputColumnMeta() { OutputName = instruction.Str1, Visible = true, Kind = ValueKind.Text };
-                        exec.QueryOutput.Definition.Add(definition);
-                        break;
-                    case OpCode.CheckpointEnd:
-                        i = (int)exec.Checkpoints.Peek();
-                        break;
                     case OpCode.PushColumnToOutput:
                         PushToOutput(exec, exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
                         break;
@@ -654,16 +455,6 @@ namespace wooby
                     case OpCode.Mul:
                         exec.Stack.Push(Multiply(exec));
                         break;
-                    case OpCode.SkipToNextAndPopIfNotTrue:
-                        if (exec.Stack.TryPop(out ColumnValue value))
-                        {
-                            if (value.Kind == ValueKind.Boolean && !value.Boolean)
-                            {
-                                exec.QueryOutput.Rows.RemoveAt(exec.QueryOutput.Rows.Count - 1);
-                                i = (int)exec.Checkpoints.Peek();
-                            }
-                        }
-                        break;
                     case OpCode.Eq:
                         exec.Stack.Push(Equal(exec));
                         break;
@@ -674,13 +465,13 @@ namespace wooby
                         exec.Stack.Push(Less(exec, false));
                         break;
                     case OpCode.More:
-                        exec.Stack.Push(More(exec, false));
+                        exec.Stack.Push(Greater(exec, false));
                         break;
                     case OpCode.LessEq:
                         exec.Stack.Push(Less(exec, true));
                         break;
                     case OpCode.MoreEq:
-                        exec.Stack.Push(More(exec, true));
+                        exec.Stack.Push(Greater(exec, true));
                         break;
                     case OpCode.PushStackTopToOutput:
                         PushToOutput(exec, exec.Stack.Pop());
@@ -691,17 +482,10 @@ namespace wooby
                     case OpCode.PushVariable:
                         exec.Stack.Push(Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
                         break;
-                    case OpCode.ResetAllProviders:
-                        exec.MainSource.DataProvider.Reset();
-                        break;
                     default:
                         throw new Exception("Unrecognized opcode");
                 }
             }
-
-            CheckOutputRows(exec);
-
-            return exec;
         }
     }
 }

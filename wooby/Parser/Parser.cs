@@ -4,23 +4,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace wooby
+namespace wooby.Parsing
 {
-    public class Parser
+    public partial class Parser
     {
-        public enum TokenKind
-        {
-            LiteralNumber,
-            LiteralString,
-            Symbol,
-            Keyword,
-            Operator,
-            Comma,
-            SemiColon,
-            Dot,
-            None
-        }
-
         private readonly Dictionary<string, Keyword> keywordDict = new()
         {
             { "SELECT", Keyword.Select },
@@ -67,34 +54,6 @@ namespace wooby
             Operator.LessEqual,
             Operator.MoreEqual,
         };
-
-        public class Token
-        {
-            public TokenKind Kind;
-            public string StringValue;
-            public double NumberValue;
-            public Keyword KeywordValue;
-            public Operator OperatorValue;
-            public int InputLength;
-        }
-
-        public class ExpressionFlags
-        {
-            // This is for any wildcard, including the syntax tablename.*
-            public bool WildcardAllowed = false;
-            // This is for the single * character, disallowed when a column has already been specified
-            public bool GeneralWildcardAllowed = false;
-            // Whether or not you can alias the expression to an identifier
-            public bool IdentifierAllowed = false;
-        }
-
-        public class ReferenceFlags
-        {
-            public bool WildcardAllowed = false;
-            public bool ResolveReferences = false;
-            public bool AliasAllowed = false;
-            public bool TableOnly = false;
-        }
 
         private TokenKind PeekToken(string input, int offset)
         {
@@ -302,7 +261,7 @@ namespace wooby
             }
         }
 
-        public Command ParseCommand(string input, Context context)
+        public Statement ParseStatement(string input, Context context)
         {
             CurrentSources.Clear();
 
@@ -612,7 +571,6 @@ namespace wooby
                 }
             } else
             {
-
                 if (string.IsNullOrEmpty(reference.Table))
                 {
                     var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => t.Columns.Find(c => c.Name == reference.Column) != null);
@@ -630,7 +588,7 @@ namespace wooby
                 }
                 else
                 {
-                    var table = CurrentSources.Find(r => r.Identifier == reference.Table);
+                    var table = CurrentSources.Find(r => r.Identifier == reference.Table || r.Table == reference.Table);
                     if (table == null)
                     {
                         throw new Exception("Unresolved reference to table");
@@ -657,6 +615,11 @@ namespace wooby
 
             do
             {
+                if (char.IsWhiteSpace(input[offset]) && offset > originalOffset)
+                {
+                    break;
+                }
+
                 var token = NextToken(input, offset);
                 offset += token.InputLength;
                 if (token.Kind == TokenKind.None)
@@ -758,118 +721,6 @@ namespace wooby
             {
                 ProcessExpressionNodeType(expr, context, node);
             }
-        }
-
-        public SelectCommand ParseSelect(string input, int offset, Context context)
-        {
-            int originalOffset = offset;
-            var command = new SelectCommand();
-
-            Token next = NextToken(input, offset);
-            if (next.Kind != TokenKind.Keyword || next.KeywordValue != Keyword.Select)
-            {
-                throw new Exception("Failed initial check");
-            }
-            offset += next.InputLength;
-
-            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true };
-
-            do
-            {
-                next = NextToken(input, offset);
-                if (next.Kind == TokenKind.Keyword && next.KeywordValue == Keyword.From)
-                {
-                    offset += next.InputLength;
-                    break;
-                }
-                else if (next.Kind == TokenKind.None)
-                {
-                    throw new Exception("Unexpected end of input");
-                }
-                else if (next.Kind == TokenKind.Comma)
-                {
-                    offset += next.InputLength;
-                }
-
-                var expr = ParseExpression(input, offset, context, exprFlags, false);
-
-                if (command.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
-                {
-                    throw new Exception("Unexpected token *");
-                }
-
-                command.OutputColumns.Add(expr);
-                offset += expr.FullText.Length;
-
-                // Disallow general wildflags after first column
-                exprFlags.GeneralWildcardAllowed = false;
-            } while (true);
-
-            var source = ParseReference(input, offset, context, new ReferenceFlags() { TableOnly = true });
-            CurrentSources.Add(source);
-
-            foreach (var expr in command.OutputColumns.Where(e => e.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference)))
-            {
-                ResolveUnresolvedReferences(expr, context);
-            }
-
-            command.MainSource = source;
-            offset += source.InputLength;
-
-            // Prepare flags for WHERE and ORDER BY expressions
-            exprFlags.GeneralWildcardAllowed = false;
-            exprFlags.WildcardAllowed = false;
-            exprFlags.IdentifierAllowed = false;
-
-            do
-            {
-                next = NextToken(input, offset);
-                offset += next.InputLength;
-
-                if (next.Kind == TokenKind.Keyword)
-                {
-                    if (next.KeywordValue == Keyword.Where)
-                    {
-                        if (command.FilterConditions != null)
-                        {
-                            throw new Exception("Unexpected WHERE when filter has already been set");
-                        }
-
-                        command.FilterConditions = ParseExpression(input, offset, context, exprFlags, true);
-                        offset += command.FilterConditions.FullText.Length;
-                    }
-                    else if (next.KeywordValue == Keyword.Order)
-                    {
-                        next = NextToken(input, offset);
-                        if (next.Kind != TokenKind.Keyword || next.KeywordValue != Keyword.By)
-                        {
-                            throw new Exception("Unexpected token after ORDER");
-                        }
-
-                        offset += next.InputLength;
-
-                        var orderExpr = ParseExpression(input, offset, context, exprFlags, true);
-                        command.OutputOrder = new Ordering { OrderExpression = orderExpr };
-                        offset += orderExpr.FullText.Length;
-
-                        next = NextToken(input, offset);
-                        if (next.Kind == TokenKind.Keyword && (next.KeywordValue == Keyword.Asc || next.KeywordValue == Keyword.Desc))
-                        {
-                            command.OutputOrder.Kind = next.KeywordValue == Keyword.Asc ? OrderingKind.Ascending : OrderingKind.Descending;
-                            offset += next.InputLength;
-                        }
-                    }
-                }
-                else if (next.Kind != TokenKind.None)
-                {
-                    throw new Exception($"Unexpected token in query at offset {offset}");
-                }
-            } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
-
-            offset = Math.Min(input.Length, offset);
-            command.OriginalText = input[originalOffset..offset];
-
-            return command;
         }
     }
 }
