@@ -11,6 +11,7 @@ namespace wooby.Database
         Text,
         Number,
         Boolean,
+        Date,
         Null,
     }
 
@@ -20,6 +21,7 @@ namespace wooby.Database
         public string Text { get; set; }
         public double Number { get; set; }
         public bool Boolean { get; set; }
+        public DateTime Date { get; set; }
 
         public string PrettyPrint()
         {
@@ -29,6 +31,7 @@ namespace wooby.Database
                 ValueKind.Number => $"{Number}",
                 ValueKind.Text => Text,
                 ValueKind.Boolean => Boolean ? "TRUE" : "FALSE",
+                ValueKind.Date => Date.ToString("u"),
                 _ => ""
             };
         }
@@ -47,14 +50,15 @@ namespace wooby.Database
         public List<List<ColumnValue>> Rows { get; set; } = new List<List<ColumnValue>>();
     }
 
-    public abstract class DynamicVariable
+    public abstract class Function
     {
-        public abstract ColumnValue WhenCalled(ExecutionContext context);
+        public abstract ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments);
         public ColumnType ResultType { get; protected set; }
         public string Name { get; protected set; }
+        public List<ColumnType> Parameters { get; set; }
         public readonly long Id;
 
-        public DynamicVariable(long Id)
+        public Function(long Id)
         {
             this.Id = Id;
         }
@@ -74,11 +78,10 @@ namespace wooby.Database
     public enum OpCode : int
     {
         PushColumnToOutput,
-        PushVariableToOutput,
+        CallFunction,
         PushNumber,
         PushString,
         PushColumn,
-        PushVariable,
         Sum,
         Sub,
         Div,
@@ -108,7 +111,7 @@ namespace wooby.Database
         public double Num1 { get; set; }
     }
 
-        public class TableData
+    public class TableData
     {
         public TableMeta Meta { get; set; }
         public ITableDataProvider DataProvider { get; set; }

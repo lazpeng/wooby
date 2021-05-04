@@ -32,14 +32,10 @@ namespace wooby.Database
                         inst.OpCode = OpCode.PushColumn;
                         inst.Arg1 = col.Parent.Id;
                         inst.Arg2 = col.Id;
-                    } else
+                    }
+                    else
                     {
-                        var v = context.FindVariable(node.ReferenceValue.Column);
-                        if (v != null)
-                        {
-                            inst.OpCode = OpCode.PushVariable;
-                            inst.Arg1 = v.Id;
-                        } else throw new InvalidOperationException();
+                        throw new InvalidOperationException("Reference could not be found");
                     }
                     break;
             }
@@ -61,8 +57,22 @@ namespace wooby.Database
                 Operator.MoreThan => OpCode.More,
                 Operator.LessEqual => OpCode.LessEq,
                 Operator.MoreEqual => OpCode.MoreEq,
-                _ => throw new ArgumentException()
+                _ => throw new ArgumentException("Invalid operator")
             };
+        }
+
+        private static void CompileFunctionCall(FunctionCall call, Context context, List<Instruction> target)
+        {
+            // Compile arguments in reverse order
+
+            for (int i = call.Arguments.Count - 1; i >= 0; --i)
+            {
+                CompileSubExpression(0, call.Arguments[i], context, target);
+            }
+
+            var func = context.FindFunction(call.Name);
+
+            target.Add(new Instruction() { OpCode = OpCode.CallFunction, Arg1 = func.Id, Arg2 = call.Arguments.Count });
         }
 
         private static int CompileSubExpression(int offset, Expression expr, Context context, List<Instruction> target)
@@ -79,15 +89,25 @@ namespace wooby.Database
 
                 if (lastWasPrecedence)
                 {
-                    temp.Add(GetValuePushInstruction(node, context));
+
+                    if (node.Kind == Expression.NodeKind.Function)
+                    {
+                        CompileFunctionCall(node.FunctionCall, context, target);
+                    }
+                    else
+                    {
+                        temp.Add(GetValuePushInstruction(node, context));
+                    }
                     temp.Add(new Instruction() { OpCode = GetOpcodeForOperator(opStack.Pop()) });
+                    lastWasPrecedence = false;
                 }
                 else if (node.Kind == Expression.NodeKind.Operator)
                 {
                     if (node.OperatorValue == Operator.ParenthesisLeft)
                     {
                         i = CompileSubExpression(i + 1, expr, context, target);
-                    } else if (node.OperatorValue == Operator.ParenthesisRight)
+                    }
+                    else if (node.OperatorValue == Operator.ParenthesisRight)
                     {
                         break;
                     }
@@ -106,7 +126,14 @@ namespace wooby.Database
                 }
                 else
                 {
-                    temp.Add(GetValuePushInstruction(node, context));
+                    if (node.Kind == Expression.NodeKind.Function)
+                    {
+                        CompileFunctionCall(node.FunctionCall, context, target);
+                    }
+                    else
+                    {
+                        temp.Add(GetValuePushInstruction(node, context));
+                    }
                 }
             }
 
@@ -119,7 +146,7 @@ namespace wooby.Database
             return i;
         }
 
-        public static void CompileExpression(SelectStatement command, Expression expr, Context context, List<Instruction> target)
+        public static void CompileExpression(SelectStatement command, Expression expr, Context context, List<Instruction> target, bool pushToOutput)
         {
             if (expr.IsOnlyReference())
             {
@@ -143,8 +170,8 @@ namespace wooby.Database
                 {
                     if (string.IsNullOrEmpty(reference.Table))
                     {
-                        var variable = context.FindVariable(reference.Join());
-                        target.Add(new Instruction() { OpCode = OpCode.PushVariableToOutput, Arg1 = variable.Id });
+                        var variable = context.FindFunction(reference.Join());
+                        target.Add(new Instruction() { OpCode = OpCode.CallFunction, Arg1 = variable.Id });
                     }
                     else
                     {
@@ -175,6 +202,10 @@ namespace wooby.Database
             else
             {
                 CompileSubExpression(0, expr, context, target);
+                if (pushToOutput)
+                {
+                    target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOutput });
+                }
             }
         }
     }

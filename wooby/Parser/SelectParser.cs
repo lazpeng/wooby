@@ -39,7 +39,7 @@ namespace wooby.Parsing
                     offset += next.InputLength;
                 }
 
-                var expr = ParseExpression(input, offset, context, exprFlags, false);
+                var expr = ParseExpression(input, offset, context, exprFlags, false, false);
 
                 if (command.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
                 {
@@ -56,7 +56,8 @@ namespace wooby.Parsing
             var source = ParseReference(input, offset, context, new ReferenceFlags() { TableOnly = true });
             CurrentSources.Add(source);
 
-            foreach (var expr in command.OutputColumns.Where(e => e.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference)))
+            var pendingReferences = command.OutputColumns.Where(e => e.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference || n.Kind == Expression.NodeKind.Function));
+            foreach (var expr in pendingReferences)
             {
                 ResolveUnresolvedReferences(expr, context);
             }
@@ -83,7 +84,7 @@ namespace wooby.Parsing
                             throw new Exception("Unexpected WHERE when filter has already been set");
                         }
 
-                        command.FilterConditions = ParseExpression(input, offset, context, exprFlags, true);
+                        command.FilterConditions = ParseExpression(input, offset, context, exprFlags, true, false);
                         offset += command.FilterConditions.FullText.Length;
                     }
                     else if (next.KeywordValue == Keyword.Order)
@@ -96,7 +97,7 @@ namespace wooby.Parsing
 
                         offset += next.InputLength;
 
-                        var orderExpr = ParseExpression(input, offset, context, exprFlags, true);
+                        var orderExpr = ParseExpression(input, offset, context, exprFlags, true, false);
                         command.OutputOrder = new Ordering { OrderExpression = orderExpr };
                         offset += orderExpr.FullText.Length;
 

@@ -10,7 +10,7 @@ namespace wooby.Database
 {
     public class Machine
     {
-        private List<DynamicVariable> Variables { get; set; }
+        private List<Function> Functions { get; set; }
         private List<TableData> Tables { get; set; }
         public Context Context { get; private set; } = null;
 
@@ -28,16 +28,19 @@ namespace wooby.Database
         {
             long id = 0;
 
-            Variables = new List<DynamicVariable>()
+            Functions = new List<Function>()
             {
-                new CurrentDate_Variable(id++),
-                new DatabaseName_Variable(id++),
-                new RowNum_Variable(id++),
+                new CurrentDate_Function(id++),
+                new DatabaseName_Function(id++),
+                new RowNum_Function(id++),
+                new RowId_Function(id++),
+                new Trunc_Function(id++),
+                new SayHello_Function(id++),
             };
 
-            foreach (var v in Variables)
+            foreach (var v in Functions)
             {
-                Context.Variables.Add(new GlobalVariable() { Id = v.Id, Name = v.Name, Type = v.ResultType });
+                Context.Functions.Add(new wooby.Function() { Id = v.Id, Name = v.Name, Type = v.ResultType, Parameters = v.Parameters });
             }
         }
 
@@ -345,9 +348,11 @@ namespace wooby.Database
             // Compile all expressions
             var outputExpressions = new List<Instruction>();
 
+            exec.QueryOutput.Definition.Add(new OutputColumnMeta() { Kind = ValueKind.Number, OutputName = "ROWID", Visible = false });
+
             foreach (var output in query.OutputColumns)
             {
-                Compiler.CompileExpression(query, output, Context, outputExpressions);
+                Compiler.CompileExpression(query, output, Context, outputExpressions, true);
 
                 // Prepare the output columns
 
@@ -357,7 +362,7 @@ namespace wooby.Database
             var filter = new List<Instruction>();
             if (query.FilterConditions != null)
             {
-                Compiler.CompileExpression(query, query.FilterConditions, Context, filter);
+                Compiler.CompileExpression(query, query.FilterConditions, Context, filter, false);
             }
 
             // Select source
@@ -372,13 +377,10 @@ namespace wooby.Database
             {
                 var filteredRows = new List<long>();
 
-                do
+                while (exec.MainSource.DataProvider.SeekNext())
                 {
-                    if (!exec.MainSource.DataProvider.SeekNext())
-                    {
-                        break;
-                    }
-
+                    // Add output rows so we can use ROWNUM in the WHERE clause
+                    exec.QueryOutput.Rows.Add(new List<ColumnValue>());
                     Execute(filter, exec);
 
                     if (exec.Stack.TryPop(out ColumnValue value))
@@ -388,7 +390,9 @@ namespace wooby.Database
                             filteredRows.Add(exec.MainSource.DataProvider.RowId());
                         }
                     }
-                } while (true);
+                };
+
+                exec.QueryOutput.Rows.Clear();
 
                 // Revisit all filtered rows and select the results
 
@@ -397,13 +401,18 @@ namespace wooby.Database
                     exec.MainSource.DataProvider.Seek(rowid);
 
                     exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                    exec.QueryOutput.Rows.Last().Add(new ColumnValue() { Kind = ValueKind.Number, Number = rowid });
                     Execute(outputExpressions, exec);
                 }
-            } else
+            }
+            else
             {
                 while (exec.MainSource.DataProvider.SeekNext())
                 {
+                    var rowid = exec.MainSource.DataProvider.RowId();
+
                     exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                    exec.QueryOutput.Rows.Last().Add(new ColumnValue() { Kind = ValueKind.Number, Number = rowid });
                     Execute(outputExpressions, exec);
                 }
             }
@@ -423,6 +432,19 @@ namespace wooby.Database
             return exec;
         }
 
+        private List<ColumnValue> PopFunctionArguments(ExecutionContext exec, int numArgs)
+        {
+            var result = new List<ColumnValue>(numArgs);
+
+            for (int i = 0; i < numArgs; ++i)
+            {
+                result.Add(exec.Stack.Pop());
+            }
+
+            result.Reverse();
+            return result;
+        }
+
         public void Execute(List<Instruction> instructions, ExecutionContext exec)
         {
             for (int i = 0; i < instructions.Count; ++i)
@@ -434,8 +456,13 @@ namespace wooby.Database
                     case OpCode.PushColumnToOutput:
                         PushToOutput(exec, exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
                         break;
-                    case OpCode.PushVariableToOutput:
-                        PushToOutput(exec, Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
+                    case OpCode.CallFunction:
+                        var numArgs = (int) instruction.Arg2;
+                        if (numArgs > exec.Stack.Count)
+                        {
+                            throw new InvalidOperationException("Expected arguments for function call do not match the stack contents");
+                        }
+                        exec.Stack.Push(Functions.Find(v => v.Id == instruction.Arg1).WhenCalled(exec, PopFunctionArguments(exec, numArgs)));
                         break;
                     case OpCode.PushNumber:
                         exec.Stack.Push(new ColumnValue() { Kind = ValueKind.Number, Number = instruction.Num1 });
@@ -478,9 +505,6 @@ namespace wooby.Database
                         break;
                     case OpCode.PushColumn:
                         exec.Stack.Push(exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
-                        break;
-                    case OpCode.PushVariable:
-                        exec.Stack.Push(Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
                         break;
                     default:
                         throw new Exception("Unrecognized opcode");
