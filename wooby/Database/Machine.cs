@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -97,6 +98,40 @@ namespace wooby.Database
             context.QueryOutput.Rows.Last().Add(value);
         }
 
+        private static void PushToOrdering(ExecutionContext context, ColumnValue value)
+        {
+            if (context.OrderingResults.Count == 0)
+            {
+                throw new InvalidOperationException("Query ordering has no rows to push to");
+            }
+
+            context.OrderingResults.Last().Values.Add(value);
+        }
+
+        public class ColumnValueComparer : IComparer<ColumnValue>, IEqualityComparer<ColumnValue>
+        {
+            public int Compare(ColumnValue x, ColumnValue y)
+            {
+                if (IsGreater(x, y, false, true).Boolean)
+                {
+                    return 1;
+                } else
+                {
+                    return Equal(x, y).Boolean ? 0 : -1;
+                }
+            }
+
+            public bool Equals(ColumnValue x, ColumnValue y)
+            {
+                return x.Kind == y.Kind && Equal(x, y).Boolean;
+            }
+
+            public int GetHashCode([DisallowNull] ColumnValue obj)
+            {
+                return base.GetHashCode();
+            }
+        }
+
         private static void AssertValuesNotBoolean(ColumnValue a)
         {
             if (a.Kind == ValueKind.Boolean)
@@ -132,7 +167,7 @@ namespace wooby.Database
                 return new ColumnValue() { Text = lstr + rstr, Kind = ValueKind.Text };
             }
 
-            throw new ArgumentException();
+            throw new ArgumentException("Incompatible values for sum operation");
         }
 
 
@@ -154,7 +189,7 @@ namespace wooby.Database
                 return new ColumnValue() { Boolean = lstr == rstr, Kind = ValueKind.Boolean };
             }
 
-            throw new ArgumentException();
+            throw new ArgumentException("Incompatible values for equals operation");
         }
 
         private static ColumnValue Equal(ExecutionContext context)
@@ -211,11 +246,8 @@ namespace wooby.Database
             return result;
         }
 
-        private static ColumnValue Greater(ExecutionContext context, bool orEqual)
+        private static ColumnValue IsGreater(ColumnValue left, ColumnValue right, bool orEqual, bool isOrdering = false)
         {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
             AssertValuesNotBoolean(left, right);
 
             var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
@@ -229,7 +261,13 @@ namespace wooby.Database
             }
             else if (left.Kind == ValueKind.Text)
             {
-                throw new ArgumentException("Invalid operation between strings");
+                if (isOrdering)
+                {
+                    result.Boolean = string.Compare(left.Text, right.Text) > 0;
+                } else
+                {
+                    throw new ArgumentException("Invalid operation between strings");
+                }
             }
 
             if (!result.Boolean && orEqual)
@@ -238,6 +276,14 @@ namespace wooby.Database
             }
 
             return result;
+        }
+
+        private static ColumnValue Greater(ExecutionContext context, bool orEqual)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            return IsGreater(left, right, orEqual);
         }
 
         private static ColumnValue Divide(ExecutionContext context)
@@ -343,16 +389,86 @@ namespace wooby.Database
             }
         }
 
+        private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query, List<int> indexes, int colIndex)
+        {
+            var result = new List<RowOrderingIntermediate>();
+            var ascending = query.OutputOrder[colIndex].Kind == OrderingKind.Ascending;
+
+            IEnumerable<RowOrderData> input;
+            if (indexes != null && indexes.Count > 0)
+            {
+                input = exec.OrderingResults.Where(r => indexes.Contains(r.RowIndex));
+            } else
+            {
+                input = exec.OrderingResults.AsEnumerable();
+            }
+
+            var groups = input.GroupBy(row => row.Values[colIndex], new ColumnValueComparer()).OrderBy(r => r.Key, new ColumnValueComparer());
+            if (ascending)
+            {
+                foreach (var group in groups)
+                {
+                    result.Add(new RowOrderingIntermediate()
+                    {
+                        DistinctValue = group.Key,
+                        MatchingRows = group.Select(row => row.RowIndex).ToList()
+                    });
+                }
+            } else
+            {
+                foreach (var group in groups.Reverse())
+                {
+                    result.Add(new RowOrderingIntermediate()
+                    {
+                        DistinctValue = group.Key,
+                        MatchingRows = group.Select(row => row.RowIndex).ToList()
+                    });
+                }
+            }
+
+            return result;
+        }
+
+        private static void OrderSub(ExecutionContext context, SelectStatement query, List<RowOrderingIntermediate> scope, int colIndex)
+        {
+            if (colIndex >= query.OutputOrder.Count)
+                return;
+
+            foreach (var items in scope)
+            {
+                if (items.MatchingRows.Count > 1)
+                {
+                    items.SubOrdering = BuildFromRows(context, query, items.MatchingRows, colIndex);
+                    items.MatchingRows = null;
+                }
+            }
+        }
+
+        private static void OrderOutputRows(ExecutionContext exec, SelectStatement query)
+        {
+            if (query.OutputOrder.Count > 0)
+            {
+                var group = BuildFromRows(exec, query, null, 0);
+                OrderSub(exec, query, group, 1);
+
+                var newResult = new List<List<ColumnValue>>(exec.QueryOutput.Rows.Count);
+                foreach (var item in group)
+                {
+                    item.Collect(exec, newResult);
+                }
+
+                exec.QueryOutput.Rows = newResult;
+            }
+        }
+
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
         {
             // Compile all expressions
             var outputExpressions = new List<Instruction>();
 
-            exec.QueryOutput.Definition.Add(new OutputColumnMeta() { Kind = ValueKind.Number, OutputName = "ROWID", Visible = false });
-
             foreach (var output in query.OutputColumns)
             {
-                Compiler.CompileExpression(query, output, Context, outputExpressions, true);
+                Compiler.CompileExpression(query, output, Context, outputExpressions, PushResultKind.ToOutput);
 
                 // Prepare the output columns
 
@@ -362,21 +478,26 @@ namespace wooby.Database
             var filter = new List<Instruction>();
             if (query.FilterConditions != null)
             {
-                Compiler.CompileExpression(query, query.FilterConditions, Context, filter, false);
+                Compiler.CompileExpression(query, query.FilterConditions, Context, filter, PushResultKind.None);
             }
 
-            // Select source
+            var ordering = new List<Instruction>();
+            foreach (var ord in query.OutputOrder)
+            {
+                Compiler.CompileExpression(query, ord.OrderExpression, Context, ordering, PushResultKind.ToOrdering);
+            }
+
+            // Select main source
 
             var sourceId = Context.FindTable(query.MainSource).Id;
             exec.MainSource = Tables.Find(t => t.Meta.Id == sourceId);
             exec.MainSource.DataProvider.Reset();
 
             // First, filter all columns in the source if a filter was specified
+            var filteredRows = new List<long>();
 
             if (query.FilterConditions != null)
             {
-                var filteredRows = new List<long>();
-
                 while (exec.MainSource.DataProvider.SeekNext())
                 {
                     // Add output rows so we can use ROWNUM in the WHERE clause
@@ -393,30 +514,32 @@ namespace wooby.Database
                 };
 
                 exec.QueryOutput.Rows.Clear();
-
-                // Revisit all filtered rows and select the results
-
-                foreach (var rowid in filteredRows)
-                {
-                    exec.MainSource.DataProvider.Seek(rowid);
-
-                    exec.QueryOutput.Rows.Add(new List<ColumnValue>());
-                    exec.QueryOutput.Rows.Last().Add(new ColumnValue() { Kind = ValueKind.Number, Number = rowid });
-                    Execute(outputExpressions, exec);
-                }
             }
-            else
+
+            var filterIndex = 0;
+
+            while (true)
             {
-                while (exec.MainSource.DataProvider.SeekNext())
+                if (query.FilterConditions != null)
                 {
-                    var rowid = exec.MainSource.DataProvider.RowId();
-
-                    exec.QueryOutput.Rows.Add(new List<ColumnValue>());
-                    exec.QueryOutput.Rows.Last().Add(new ColumnValue() { Kind = ValueKind.Number, Number = rowid });
-                    Execute(outputExpressions, exec);
+                    if (filterIndex >= filteredRows.Count)
+                        break;
+                    else
+                        exec.MainSource.DataProvider.Seek(filteredRows[filterIndex++]);
                 }
+                else if (!exec.MainSource.DataProvider.SeekNext())
+                    break;
+
+                var rowIndex = exec.QueryOutput.Rows.Count;
+                // First get the actual outputs from the query
+                exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                Execute(outputExpressions, exec);
+                // Fetch the required results for the ordering
+                exec.OrderingResults.Add(new RowOrderData() { RowIndex = rowIndex });
+                Execute(ordering, exec);
             }
 
+            OrderOutputRows(exec, query);
             CheckOutputRows(exec);
         }
 
@@ -432,7 +555,7 @@ namespace wooby.Database
             return exec;
         }
 
-        private List<ColumnValue> PopFunctionArguments(ExecutionContext exec, int numArgs)
+        private static List<ColumnValue> PopFunctionArguments(ExecutionContext exec, int numArgs)
         {
             var result = new List<ColumnValue>(numArgs);
 
@@ -457,7 +580,7 @@ namespace wooby.Database
                         PushToOutput(exec, exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
                         break;
                     case OpCode.CallFunction:
-                        var numArgs = (int) instruction.Arg2;
+                        var numArgs = (int)instruction.Arg2;
                         if (numArgs > exec.Stack.Count)
                         {
                             throw new InvalidOperationException("Expected arguments for function call do not match the stack contents");
@@ -502,6 +625,9 @@ namespace wooby.Database
                         break;
                     case OpCode.PushStackTopToOutput:
                         PushToOutput(exec, exec.Stack.Pop());
+                        break;
+                    case OpCode.PushStackTopToOrdering:
+                        PushToOrdering(exec, exec.Stack.Pop());
                         break;
                     case OpCode.PushColumn:
                         exec.Stack.Push(exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));

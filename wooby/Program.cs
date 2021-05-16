@@ -27,7 +27,7 @@ namespace wooby
                 col.Title = definition.OutputName;
                 col.Rows = result.QueryOutput.Rows.Select(r => r[i].PrettyPrint()).ToList();
 
-                col.Length = Math.Max(col.Title.Length, col.Rows.Max(s => s.Length));
+                col.Length = Math.Max(col.Title.Length, col.Rows.Count > 0 ? col.Rows.Max(s => s.Length) : 0);
                 columns[i] = col;
             }
 
