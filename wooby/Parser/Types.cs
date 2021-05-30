@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static wooby.Parsing.Parser;
 
 namespace wooby.Parsing
 {
@@ -39,6 +40,16 @@ namespace wooby.Parsing
             public bool GeneralWildcardAllowed = false;
             // Whether or not you can alias the expression to an identifier
             public bool IdentifierAllowed = false;
+            // If a single-value subselect is allowed
+            public bool SingleValueSubSelectAllowed = false;
+        }
+
+        public class SelectFlags
+        {
+            // If the select should only return a single column
+            public bool SingleValueReturn = false;
+            // If the resulting query can stop in a unmatched parenthesis (or throw an error)
+            public bool StopOnUnmatchedParenthesis = false;
         }
 
         public class ReferenceFlags
@@ -95,6 +106,7 @@ namespace wooby.Parsing
             Number,
             Reference,
             Function,
+            SubSelect,
             Null
         }
 
@@ -106,6 +118,7 @@ namespace wooby.Parsing
             public Operator OperatorValue;
             public ColumnReference ReferenceValue;
             public FunctionCall FunctionCall;
+            public SelectStatement SubSelect;
 
             public override bool Equals(object obj)
             {
@@ -116,7 +129,8 @@ namespace wooby.Parsing
                        NumberValue == node.NumberValue &&
                        OperatorValue == node.OperatorValue &&
                        (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue)) &&
-                       (FunctionCall == node.FunctionCall || FunctionCall.Equals(node.FunctionCall));
+                       (FunctionCall == node.FunctionCall || FunctionCall.Equals(node.FunctionCall)) &&
+                       SubSelect == node.SubSelect || SubSelect.Equals(node.SubSelect);
                 }
                 else return false;
             }
@@ -222,7 +236,9 @@ namespace wooby.Parsing
         public string Table { get; set; } = "";
         public string Column { get; set; } = "";
         public string Identifier { get; set; } = "";
+        public string TableIdentifier { get; set; } = "";
         public int InputLength { get; set; }
+        public int ParentLevel { get; set; } = 0;
 
         public override bool Equals(object obj)
         {
@@ -309,6 +325,25 @@ namespace wooby.Parsing
         public ColumnReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
         public List<Ordering> OutputOrder { get; set; } = new List<Ordering>();
+        public SelectStatement Parent { get; set; } = null;
+        public string Identifier { get; set; } = "";
+        public SelectFlags UsedFlags { get; set; }
+
+        public ColumnReference TryFindReferenceRecursive(ColumnReference reference, int level)
+        {
+            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier)
+            {
+                reference.Table = MainSource.Table;
+                reference.TableIdentifier = MainSource.Identifier;
+                reference.ParentLevel = level;
+                return reference;
+            }
+
+            if (Parent != null)
+            {
+                return Parent.TryFindReferenceRecursive(reference, level + 1);
+            } else return null;
+        }
 
         public override bool Equals(object obj)
         {

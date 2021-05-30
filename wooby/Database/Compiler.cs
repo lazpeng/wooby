@@ -32,6 +32,7 @@ namespace wooby.Database
                         inst.OpCode = OpCode.PushColumn;
                         inst.Arg1 = col.Parent.Id;
                         inst.Arg2 = col.Id;
+                        inst.Arg3 = node.ReferenceValue.ParentLevel;
                     }
                     else
                     {
@@ -89,10 +90,13 @@ namespace wooby.Database
 
                 if (lastWasPrecedence)
                 {
-
                     if (node.Kind == Expression.NodeKind.Function)
                     {
                         CompileFunctionCall(node.FunctionCall, context, target);
+                    }
+                    else if (node.Kind == Expression.NodeKind.SubSelect)
+                    {
+                        target.Add(new Instruction() { OpCode = OpCode.ExecuteSubQuery, SubQuery = node.SubSelect });
                     }
                     else
                     {
@@ -129,6 +133,10 @@ namespace wooby.Database
                     if (node.Kind == Expression.NodeKind.Function)
                     {
                         CompileFunctionCall(node.FunctionCall, context, target);
+                    }
+                    else if (node.Kind == Expression.NodeKind.SubSelect)
+                    {
+                        target.Add(new Instruction() { OpCode = OpCode.ExecuteSubQuery, SubQuery = node.SubSelect });
                     }
                     else
                     {
@@ -188,7 +196,8 @@ namespace wooby.Database
                         if (push == PushResultKind.ToOrdering)
                         {
                             op = OpCode.PushStackTopToOrdering;
-                        } else
+                        }
+                        else
                         {
                             op = OpCode.PushStackTopToOutput;
                         }
@@ -222,7 +231,8 @@ namespace wooby.Database
                 if (push == PushResultKind.ToOutput)
                 {
                     target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOutput });
-                } else if (push == PushResultKind.ToOrdering)
+                }
+                else if (push == PushResultKind.ToOrdering)
                 {
                     target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOrdering });
                 }

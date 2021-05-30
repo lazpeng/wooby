@@ -17,14 +17,14 @@ My "roadmap" is as follows:
 ### v0.2.1
 * Support for functions such as COALESCE
 
+### v0.2.2
+* Support for sub queries
+
 ## v0.3
 * Support for creating and dropping tables, inserting, updating and deleting rows from it. At this stage everything is still in-memory and no database data is written to the disk or persisted in any way
 
 ### v0.3.1
 * Support for left join
-
-### v0.3.2
-* Support for sub queries
 
 ## v0.4
 * Support for group by and aggregate functions
@@ -35,6 +35,6 @@ My "roadmap" is as follows:
 ## v0.5
 * Saving and loading the database to disk, at least an initial implementation using JSON or something simple to get the persistence working, and then switch backends later
 
-### Current stage: v0.2
+### Current stage: v0.2.2
 
 I'll add more stuff as the project advances

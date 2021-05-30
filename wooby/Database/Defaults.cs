@@ -62,7 +62,7 @@ namespace wooby.Database
 
         public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> _)
         {
-            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.MainSource.DataProvider.RowId() };
+            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.MainSource.DataProvider.CurrentRowId() };
         }
     }
 
@@ -101,35 +101,23 @@ namespace wooby.Database
 
     public class Dual_DataProvider : ITableDataProvider
     {
-        private long index = 0;
-        public ColumnValue GetColumn(int index)
+        private readonly List<ColumnValue> Dummy = new();
+
+        public IEnumerable<ColumnValue> Seek(long RowId)
         {
-            return null;
+            if (RowId == 0)
+            {
+                return Dummy;
+            } else return null;
         }
 
-        public void Reset()
+        public IEnumerable<ColumnValue> SeekNext(ref long RowId)
         {
-            // Stub
-        }
-
-        public long RowId()
-        {
-            return index;
-        }
-
-        public bool Seek(long RowId)
-        {
-            return RowId == 0;
-        }
-
-        public bool SeekNext()
-        {
-            return index++ <= 0;
-        }
-
-        public List<ColumnValue> WholeRow()
-        {
-            return null;
+            if (RowId < 0)
+            {
+                RowId = 0;
+                return Seek(0);
+            } else return null;
         }
     }
 
@@ -137,79 +125,62 @@ namespace wooby.Database
     {
         private class Group
         {
+            public long Id;
+            public long? ParentId = null;
             public string Nome;
             public int Ano;
             public int NumIntegrantes;
         }
 
-        private List<Group> grupos = new()
+        private readonly List<Group> groups = new()
         {
-            new Group() { Nome = "μ's", Ano = 2010, NumIntegrantes = 9 },
-            new Group() { Nome = "Aqours", Ano = 2016, NumIntegrantes = 9 },
-            new Group() { Nome = "Nijigasaki School Idol Club", Ano = 2017, NumIntegrantes = 10 },
-            new Group() { Nome = "Liella", Ano = 2020, NumIntegrantes = 5 },
+            new Group() { Id = 0, Nome = "μ's", Ano = 2010, NumIntegrantes = 9 },
+            new Group() { Id = 1, Nome = "Aqours", Ano = 2016, NumIntegrantes = 9 },
+            new Group() { Id = 2, Nome = "Nijigasaki School Idol Club", Ano = 2017, NumIntegrantes = 10 },
+            new Group() { Id = 3, Nome = "Liella", Ano = 2020, NumIntegrantes = 5 },
+            new Group() { Id = 4, Nome = "BiBi", Ano = 2011, NumIntegrantes = 3, ParentId = 0 },
+            new Group() { Id = 5, Nome = "Lily white", Ano = 2011, NumIntegrantes = 3, ParentId = 0 },
+            new Group() { Id = 6, Nome = "Printemps", Ano = 2011, NumIntegrantes = 3, ParentId = 0 },
+            new Group() { Id = 7, Nome = "Guilty kiss", Ano = 2016, NumIntegrantes = 3, ParentId = 1 },
+            new Group() { Id = 8, Nome = "CYaRon", Ano = 2016, NumIntegrantes = 3, ParentId = 1 },
+            new Group() { Id = 9, Nome = "AZALEA", Ano = 2016, NumIntegrantes = 3, ParentId = 1 },
         };
 
-        private int cursor = -1;
+        private readonly List<List<ColumnValue>> Rows;
 
-        public ColumnValue GetColumn(int index)
+        public LoveLive_DataProvider()
         {
-            if (cursor < 0)
+            Rows = groups.Select(g =>
+                new List<ColumnValue>()
+                {
+                    new ColumnValue() { Kind = ValueKind.Number, Number = g.Id },
+                    g.ParentId != null ? new ColumnValue { Kind = ValueKind.Number, Number = g.ParentId.Value } : new ColumnValue { Kind = ValueKind.Null },
+                    new ColumnValue() { Kind = ValueKind.Text, Text = g.Nome },
+                    new ColumnValue() { Kind = ValueKind.Number, Number = g.Ano },
+                    new ColumnValue() { Kind = ValueKind.Number, Number = g.NumIntegrantes }
+                }).ToList();
+        }
+
+        IEnumerable<ColumnValue> ITableDataProvider.Seek(long RowId)
+        {
+            if (RowId >= Rows.Count)
             {
-                throw new InvalidOperationException();
+                return null;
             }
 
-            var grupo = grupos[cursor];
+            return Rows[(int) RowId];
+        }
 
-            return index switch
+        public IEnumerable<ColumnValue> SeekNext(ref long RowId)
+        {
+            if (RowId + 1 >= Rows.Count)
             {
-                0 => new ColumnValue() { Kind = ValueKind.Text, Text = grupo.Nome },
-                1 => new ColumnValue() { Kind = ValueKind.Number, Number = grupo.Ano },
-                2 => new ColumnValue() { Kind = ValueKind.Number, Number = grupo.NumIntegrantes },
-                _ => throw new InvalidOperationException()
-            };
-        }
-
-        public void Reset()
-        {
-            cursor = -1;
-        }
-
-        public long RowId()
-        {
-            return cursor;
-        }
-
-        public bool Seek(long RowId)
-        {
-            if (RowId < grupos.Count)
-            {
-                cursor = (int)RowId;
-                return true;
-            }
-            else return false;
-        }
-
-        public bool SeekNext()
-        {
-            return ++cursor < grupos.Count;
-        }
-
-        public List<ColumnValue> WholeRow()
-        {
-            if (cursor < 0)
-            {
-                throw new InvalidOperationException();
+                return null;
             }
 
-            var grupo = grupos[cursor];
+            RowId += 1;
 
-            return new()
-            {
-                new ColumnValue() { Kind = ValueKind.Text, Text = grupo.Nome },
-                new ColumnValue() { Kind = ValueKind.Number, Number = grupo.Ano },
-                new ColumnValue() { Kind = ValueKind.Number, Number = grupo.NumIntegrantes }
-            };
+            return Rows[(int) RowId];
         }
     }
 }

@@ -75,6 +75,9 @@ namespace wooby.Database
                 Context.AddTable(t.Meta);
             }
 
+            // TODO: Improve this
+            Context.AddColumn(new ColumnMeta() { Name = "id", Type = ColumnType.Number }, Tables[1].Meta);
+            Context.AddColumn(new ColumnMeta() { Name = "parent_id", Type = ColumnType.Number }, Tables[1].Meta);
             Context.AddColumn(new ColumnMeta() { Name = "nome", Type = ColumnType.String }, Tables[1].Meta);
             Context.AddColumn(new ColumnMeta() { Name = "ano", Type = ColumnType.Number }, Tables[1].Meta);
             Context.AddColumn(new ColumnMeta() { Name = "integrantes", Type = ColumnType.Number }, Tables[1].Meta);
@@ -115,7 +118,8 @@ namespace wooby.Database
                 if (IsGreater(x, y, false, true).Boolean)
                 {
                     return 1;
-                } else
+                }
+                else
                 {
                     return Equal(x, y).Boolean ? 0 : -1;
                 }
@@ -146,12 +150,21 @@ namespace wooby.Database
             AssertValuesNotBoolean(b);
         }
 
+        private static bool AnyValuesNull(ColumnValue a, ColumnValue b)
+        {
+            return a.Kind == ValueKind.Null || b.Kind == ValueKind.Null;
+        }
+
         private static ColumnValue Sum(ExecutionContext context)
         {
             var right = context.Stack.Pop();
             var left = context.Stack.Pop();
 
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return ColumnValue.Null();
+            }
 
             if (left.Kind == ValueKind.Number)
             {
@@ -174,6 +187,11 @@ namespace wooby.Database
         private static ColumnValue Equal(ColumnValue left, ColumnValue right)
         {
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                var equal = AnyValuesNull(left, left) && AnyValuesNull(right, right);
+                return new ColumnValue() { Kind = ValueKind.Boolean, Boolean = equal };
+            }
 
             if (left.Kind == ValueKind.Number)
             {
@@ -223,6 +241,10 @@ namespace wooby.Database
             var left = context.Stack.Pop();
 
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return new ColumnValue { Kind = ValueKind.Boolean, Boolean = false };
+            }
 
             var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
 
@@ -249,6 +271,10 @@ namespace wooby.Database
         private static ColumnValue IsGreater(ColumnValue left, ColumnValue right, bool orEqual, bool isOrdering = false)
         {
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return new ColumnValue { Kind = ValueKind.Boolean, Boolean = false };
+            }
 
             var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
 
@@ -264,7 +290,8 @@ namespace wooby.Database
                 if (isOrdering)
                 {
                     result.Boolean = string.Compare(left.Text, right.Text) > 0;
-                } else
+                }
+                else
                 {
                     throw new ArgumentException("Invalid operation between strings");
                 }
@@ -292,6 +319,10 @@ namespace wooby.Database
             var left = context.Stack.Pop();
 
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return ColumnValue.Null();
+            }
 
             if (left.Kind == ValueKind.Number)
             {
@@ -314,6 +345,10 @@ namespace wooby.Database
             var left = context.Stack.Pop();
 
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return ColumnValue.Null();
+            }
 
             if (left.Kind == ValueKind.Number)
             {
@@ -336,6 +371,10 @@ namespace wooby.Database
             var left = context.Stack.Pop();
 
             AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return ColumnValue.Null();
+            }
 
             if (left.Kind == ValueKind.Number)
             {
@@ -398,7 +437,8 @@ namespace wooby.Database
             if (indexes != null && indexes.Count > 0)
             {
                 input = exec.OrderingResults.Where(r => indexes.Contains(r.RowIndex));
-            } else
+            }
+            else
             {
                 input = exec.OrderingResults.AsEnumerable();
             }
@@ -414,7 +454,8 @@ namespace wooby.Database
                         MatchingRows = group.Select(row => row.RowIndex).ToList()
                     });
                 }
-            } else
+            }
+            else
             {
                 foreach (var group in groups.Reverse())
                 {
@@ -490,8 +531,12 @@ namespace wooby.Database
             // Select main source
 
             var sourceId = Context.FindTable(query.MainSource).Id;
-            exec.MainSource = Tables.Find(t => t.Meta.Id == sourceId);
-            exec.MainSource.DataProvider.Reset();
+            var sourceData = Tables.Find(t => t.Meta.Id == sourceId);
+            exec.MainSource = new ExecutionDataSource()
+            {
+                Meta = sourceData.Meta,
+                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Meta.Columns.Count)
+            };
 
             // First, filter all columns in the source if a filter was specified
             var filteredRows = new List<long>();
@@ -508,7 +553,7 @@ namespace wooby.Database
                     {
                         if (value.Kind == ValueKind.Boolean && value.Boolean)
                         {
-                            filteredRows.Add(exec.MainSource.DataProvider.RowId());
+                            filteredRows.Add(exec.MainSource.DataProvider.CurrentRowId());
                         }
                     }
                 };
@@ -568,16 +613,33 @@ namespace wooby.Database
             return result;
         }
 
+        private ExecutionContext GetContextForLevel(ExecutionContext root, int level)
+        {
+            if (level <= 0)
+            {
+                return root;
+            }
+
+            if (root.Previous == null)
+            {
+                throw new IndexOutOfRangeException("Given level surpasses context availability in the current execution");
+            }
+
+            return GetContextForLevel(root.Previous, level - 1);
+        }
+
         public void Execute(List<Instruction> instructions, ExecutionContext exec)
         {
             for (int i = 0; i < instructions.Count; ++i)
             {
                 var instruction = instructions[i];
+                ExecutionContext sourceContext = null;
 
                 switch (instruction.OpCode)
                 {
                     case OpCode.PushColumnToOutput:
-                        PushToOutput(exec, exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
+                        sourceContext = GetContextForLevel(exec, (int)instruction.Arg3);
+                        PushToOutput(exec, sourceContext.MainSource.DataProvider.Read((int)instruction.Arg2));
                         break;
                     case OpCode.CallFunction:
                         var numArgs = (int)instruction.Arg2;
@@ -630,7 +692,26 @@ namespace wooby.Database
                         PushToOrdering(exec, exec.Stack.Pop());
                         break;
                     case OpCode.PushColumn:
-                        exec.Stack.Push(exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
+                        sourceContext = GetContextForLevel(exec, (int)instruction.Arg3);
+                        exec.Stack.Push(sourceContext.MainSource.DataProvider.Read((int)instruction.Arg2));
+                        break;
+                    case OpCode.ExecuteSubQuery:
+                        var sub = new ExecutionContext(Context)
+                        {
+                            Previous = exec
+                        };
+                        ExecuteQuery(sub, instruction.SubQuery);
+
+                        // Get first column of the last row in the target result
+                        if (sub.QueryOutput.Rows.Count > 0)
+                        {
+                            var result = sub.QueryOutput.Rows.Last()[0];
+                            exec.Stack.Push(result);
+                        }
+                        else
+                        {
+                            exec.Stack.Push(new ColumnValue { Kind = ValueKind.Null });
+                        }
                         break;
                     default:
                         throw new Exception("Unrecognized opcode");
