@@ -83,22 +83,6 @@ namespace wooby.Database
         }
     }
 
-    class SayHello_Function : Function
-    {
-        public SayHello_Function(long Id) : base(Id)
-        {
-            Name = "DIZ_OI";
-            ResultType = ColumnType.String;
-            Parameters = new List<ColumnType>() { ColumnType.String };
-        }
-
-        public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> arguments)
-        {
-            var nome = arguments[0].Text;
-            return new ColumnValue() { Kind = ValueKind.Text, Text = $"Oi, {nome}!" };
-        }
-    }
-
     public class Dual_DataProvider : ITableDataProvider
     {
         private readonly List<ColumnValue> Dummy = new();
@@ -118,6 +102,19 @@ namespace wooby.Database
                 RowId = 0;
                 return Seek(0);
             } else return null;
+        }
+    }
+
+    public class Stub_DataProvider : ITableDataProvider
+    {
+        public IEnumerable<ColumnValue> Seek(long RowId)
+        {
+            return null;
+        }
+
+        public IEnumerable<ColumnValue> SeekNext(ref long RowId)
+        {
+            return null;
         }
     }
 
