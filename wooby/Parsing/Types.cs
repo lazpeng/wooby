@@ -54,7 +54,7 @@ namespace wooby.Parsing
             public bool SingleValueSubSelectAllowed = false;
         }
 
-        public class SelectFlags
+        public class StatementFlags
         {
             // If the select should only return a single column
             public bool SingleValueReturn = false;
@@ -106,7 +106,13 @@ namespace wooby.Parsing
         By,
         As,
         Create,
+        Insert,
+        Update,
+        Delete,
         Alter,
+        Set,
+        Into,
+        Values,
         Table,
         Column,
         Add,
@@ -281,7 +287,6 @@ namespace wooby.Parsing
 
     public enum StatementKind
     {
-        Pragma,
         Query,
         Manipulation,
         Definition
@@ -290,10 +295,12 @@ namespace wooby.Parsing
     public enum StatementClass
     {
         Select,
+        Insert,
         Update,
         Delete,
         Alter,
         Create,
+        Drop,
     }
 
     public abstract class Statement
@@ -301,6 +308,28 @@ namespace wooby.Parsing
         public StatementKind Kind { get; protected set; }
         public StatementClass Class { get; protected set; }
         public string OriginalText { get; set; }
+
+        public ColumnReference MainSource { get; set; }
+        public Expression FilterConditions { get; set; }
+        public Statement Parent { get; set; } = null;
+        public StatementFlags UsedFlags { get; set; }
+
+        public ColumnReference TryFindReferenceRecursive(ColumnReference reference, int level)
+        {
+            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier)
+            {
+                reference.Table = MainSource.Table;
+                reference.TableIdentifier = MainSource.Identifier;
+                reference.ParentLevel = level;
+                return reference;
+            }
+
+            if (Parent != null)
+            {
+                return Parent.TryFindReferenceRecursive(reference, level + 1);
+            }
+            else return null;
+        }
     }
 
     public enum OrderingKind
@@ -338,28 +367,8 @@ namespace wooby.Parsing
         }
 
         public List<Expression> OutputColumns { get; private set; } = new List<Expression>();
-        public ColumnReference MainSource { get; set; }
-        public Expression FilterConditions { get; set; }
         public List<Ordering> OutputOrder { get; set; } = new List<Ordering>();
-        public SelectStatement Parent { get; set; } = null;
         public string Identifier { get; set; } = "";
-        public SelectFlags UsedFlags { get; set; }
-
-        public ColumnReference TryFindReferenceRecursive(ColumnReference reference, int level)
-        {
-            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier)
-            {
-                reference.Table = MainSource.Table;
-                reference.TableIdentifier = MainSource.Identifier;
-                reference.ParentLevel = level;
-                return reference;
-            }
-
-            if (Parent != null)
-            {
-                return Parent.TryFindReferenceRecursive(reference, level + 1);
-            } else return null;
-        }
 
         public override bool Equals(object obj)
         {
@@ -397,5 +406,43 @@ namespace wooby.Parsing
 
         public string Name { get; set; }
         public List<ColumnNameTypeDef> Columns { get; set; } = new List<ColumnNameTypeDef>();
+    }
+
+    public class InsertStatement : Statement
+    {
+        public InsertStatement()
+        {
+            Kind = StatementKind.Manipulation;
+            Class = StatementClass.Insert;
+        }
+
+        public List<string> Columns { get; set; } = new List<string>();
+        public List<Expression> Values { get; set; } = new List<Expression>();
+    }
+
+    public class UpdateColumnNode
+    {
+        public string Column { get; set; }
+        public Expression Value { get; set; }
+    }
+
+    public class UpdateStatement : Statement
+    {
+        public UpdateStatement()
+        {
+            Kind = StatementKind.Manipulation;
+            Class = StatementClass.Update;
+        }
+
+        public List<UpdateColumnNode> Columns { get; set; } = new List<UpdateColumnNode>();
+    }
+
+    public class DeleteStatement : Statement
+    {
+        public DeleteStatement()
+        {
+            Kind = StatementKind.Manipulation;
+            Class = StatementClass.Update;
+        }
     }
 }

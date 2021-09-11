@@ -397,7 +397,7 @@ namespace Tests
             Context.AddColumn(new ColumnMeta() { Name = "c", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
-            var result = new Parser().ParseSelect(input, 0, ctx, new Parser.SelectFlags(), null);
+            var result = new Parser().ParseSelect(input, 0, ctx, new Parser.StatementFlags(), null);
 
             var expected = new List<Ordering>()
             {

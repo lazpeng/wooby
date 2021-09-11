@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 using wooby.Parsing;
 
@@ -532,6 +530,21 @@ namespace wooby.Database
             });
         }
 
+        private void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void ExecuteUpdate(ExecutionContext exec, UpdateStatement update)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void ExecuteDelete(ExecutionContext exec, DeleteStatement delete)
+        {
+            throw new NotImplementedException();
+        }
+
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
         {
             // Compile all expressions
@@ -628,6 +641,17 @@ namespace wooby.Database
             } else if (statement is CreateStatement create)
             {
                 ExecuteCreate(exec, create);
+            } else if (statement is InsertStatement insert)
+            {
+                ExecuteInsert(exec, insert);
+            }
+            else if (statement is UpdateStatement update)
+            {
+                ExecuteUpdate(exec, update);
+            }
+            else if (statement is DeleteStatement delete)
+            {
+                ExecuteDelete(exec, delete);
             }
 
             return exec;

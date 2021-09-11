@@ -29,24 +29,21 @@ namespace wooby.Parsing
             }
         }
 
-        public SelectStatement ParseSelect(string input, int offset, Context context, SelectFlags flags, SelectStatement parent)
+        public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement parent)
         {
             int originalOffset = offset;
             var statement = new SelectStatement();
-            if (parent != null)
+            if (parent != null && parent is SelectStatement)
             {
                 statement.Parent = parent;
             }
             statement.UsedFlags = flags;
 
-            Token next = NextToken(input, offset);
-            if (next.Kind != TokenKind.Keyword || next.KeywordValue != Keyword.Select)
-            {
-                throw new Exception("Failed initial check");
-            }
-            offset += next.InputLength;
-
+            // First token is SELECT
+            SkipNextToken(input, ref offset);
             var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true, SingleValueSubSelectAllowed = true };
+
+            Token next = null;
 
             do
             {
@@ -62,6 +59,10 @@ namespace wooby.Parsing
                 }
                 else if (next.Kind == TokenKind.Comma)
                 {
+                    if (statement.OutputColumns.Count == 0)
+                    {
+                        throw new Exception("Query starts with a comma");
+                    }
                     offset += next.InputLength;
                 }
 
@@ -114,11 +115,7 @@ namespace wooby.Parsing
                     else if (next.KeywordValue == Keyword.Order)
                     {
                         next = NextToken(input, offset);
-                        if (next.Kind != TokenKind.Keyword || next.KeywordValue != Keyword.By)
-                        {
-                            throw new Exception("Unexpected token after ORDER");
-                        }
-
+                        AssertTokenIsKeyword(next, Keyword.By, "Unexpected token after ORDER");
                         offset += next.InputLength;
 
                         bool firstOrder = true;
