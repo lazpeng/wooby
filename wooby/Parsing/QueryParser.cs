@@ -104,13 +104,7 @@ namespace wooby.Parsing
                 {
                     if (next.KeywordValue == Keyword.Where)
                     {
-                        if (statement.FilterConditions != null)
-                        {
-                            throw new Exception("Unexpected WHERE when filter has already been set");
-                        }
-
-                        statement.FilterConditions = ParseExpression(input, offset, context, statement, exprFlags, parent == null, false);
-                        offset += statement.FilterConditions.FullText.Length;
+                        offset += ParseWhere(input, offset, context, statement);
                     }
                     else if (next.KeywordValue == Keyword.Order)
                     {

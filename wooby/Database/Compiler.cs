@@ -11,6 +11,8 @@ namespace wooby.Database
 {
     public static class Compiler
     {
+        private static readonly List<Operator> BooleanOperators = new List<Operator> { Operator.Equal, Operator.NotEqual, Operator.LessEqual, Operator.MoreEqual, Operator.MoreThan, Operator.LessThan };
+
         private static Instruction GetValuePushInstruction(Expression.Node node, Context context)
         {
             var inst = new Instruction();
@@ -58,8 +60,14 @@ namespace wooby.Database
                 Operator.MoreThan => OpCode.More,
                 Operator.LessEqual => OpCode.LessEq,
                 Operator.MoreEqual => OpCode.MoreEq,
+                Operator.Remainder => OpCode.Rem,
                 _ => throw new ArgumentException("Invalid operator")
             };
+        }
+
+        private static bool OperatorIsBoolean(Operator op)
+        {
+            return BooleanOperators.Contains(op);
         }
 
         private static void CompileFunctionCall(FunctionCall call, Context context, List<Instruction> target)
@@ -116,12 +124,21 @@ namespace wooby.Database
                         break;
                     }
 
+                    if (OperatorIsBoolean(node.OperatorValue))
+                    {
+                        while (opStack.Count > 0)
+                        {
+                            temp.Add(new Instruction() { OpCode = GetOpcodeForOperator(opStack.Pop()) });
+                        }
+                    }
+
                     opStack.Push(node.OperatorValue);
 
                     switch (node.OperatorValue)
                     {
                         case Operator.Asterisk:
                         case Operator.ForwardSlash:
+                        case Operator.Remainder:
                             lastWasPrecedence = true;
                             break;
                         default:

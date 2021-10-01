@@ -55,6 +55,7 @@ namespace wooby.Parsing
             { "!=", Operator.NotEqual },
             { "<=", Operator.LessEqual },
             { ">=", Operator.MoreEqual },
+            { "%", Operator.Remainder }, 
         };
 
         private readonly Operator[] booleanOperators = new Operator[]
@@ -784,7 +785,7 @@ namespace wooby.Parsing
                             // TODO(?) Check for name clashing
                         }
 
-                        reference = statement.TryFindReferenceRecursive(reference, 0);
+                        reference = statement.TryFindReferenceRecursive(context, reference, 0);
                         
                         if (reference == null)
                         {
@@ -794,7 +795,7 @@ namespace wooby.Parsing
                 }
                 else
                 {
-                    reference = statement.TryFindReferenceRecursive(reference, 0);
+                    reference = statement.TryFindReferenceRecursive(context, reference, 0);
                     if (reference == null)
                     {
                         throw new Exception("Unresolved reference to column");
@@ -947,6 +948,22 @@ namespace wooby.Parsing
                 "BOOL" or "BOOLEAN" => ColumnType.Boolean,
                 _ => ColumnType.Null
             };
+        }
+
+        private int ParseWhere(string input, int offset, Context context, Statement statement)
+        {
+            int originalOffset = offset;
+            if (statement.FilterConditions != null)
+            {
+                throw new Exception("Unexpected WHERE when filter has already been set");
+            }
+
+            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false, SingleValueSubSelectAllowed = true };
+
+            statement.FilterConditions = ParseExpression(input, offset, context, statement, exprFlags, statement.Parent == null, false);
+            offset += statement.FilterConditions.FullText.Length;
+
+            return offset - originalOffset;
         }
     }
 }
