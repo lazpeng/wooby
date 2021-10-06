@@ -171,6 +171,11 @@ namespace wooby.Database
             RowId = Source.Delete(RowId);
         }
 
+        public void Update(Dictionary<int, ColumnValue> values)
+        {
+            Source.Update(RowId, values);
+        }
+
         public long Insert(Dictionary<int, ColumnValue> values)
         {
             var id = Source.Insert(values);

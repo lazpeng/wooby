@@ -580,7 +580,58 @@ namespace wooby.Database
 
         private void ExecuteUpdate(ExecutionContext exec, UpdateStatement update)
         {
-            throw new NotImplementedException();
+            var filter = new List<Instruction>();
+            if (update.FilterConditions != null)
+            {
+                Compiler.CompileExpression(update, update.FilterConditions, Context, filter, PushResultKind.None);
+            }
+
+            SetupMainSource(exec, update.MainSource);
+            int affected = 0;
+
+            // Important: The instructions are to be executed every line to compute new results based on (possibly) the current values
+            var updateColumns = new List<int>();
+            var updateInstructions = new List<Instruction>();
+
+            foreach (var col in update.Columns)
+            {
+                var column = exec.Context.FindColumn(col.Item1);
+
+                if (column == null)
+                {
+                    throw new Exception("Could not find referenced column");
+                }
+
+                updateColumns.Add(column.Id);
+
+                Compiler.CompileExpression(update, col.Item2, Context, updateInstructions, PushResultKind.ToOutput);
+            }
+
+            exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+            while (exec.MainSource.DataProvider.SeekNext())
+            {
+                if (FilterIsTrueForCurrentRow(exec, filter))
+                {
+                    Execute(updateInstructions, exec);
+                    // In order, perform the update utilizing the columns in the output
+
+                    var dict = new Dictionary<int, ColumnValue>();
+
+                    int outputIndex = 0;
+                    foreach (var index in updateColumns)
+                    {
+                        dict.Add(index, exec.QueryOutput.Rows[0][outputIndex++]);
+                    }
+
+                    exec.MainSource.DataProvider.Update(dict);
+
+                    // Clear for the next row
+                    exec.QueryOutput.Rows[0].Clear();
+                    affected += 1;
+                }
+            }
+
+            exec.RowsAffected = affected;
         }
 
         private void ExecuteDelete(ExecutionContext exec, DeleteStatement delete)
@@ -596,10 +647,7 @@ namespace wooby.Database
 
             while (exec.MainSource.DataProvider.SeekNext())
             {
-                Execute(filter, exec);
-
-                var top = exec.PopStack(true);
-                if (filter.Count == 0 || (top != null && top.Kind == ValueKind.Boolean && top.Boolean))
+                if (FilterIsTrueForCurrentRow(exec, filter))
                 {
                     affected += 1;
                     exec.MainSource.DataProvider.Delete();
@@ -648,14 +696,10 @@ namespace wooby.Database
                 {
                     // Add output rows so we can use ROWNUM in the WHERE clause
                     exec.QueryOutput.Rows.Add(new List<ColumnValue>());
-                    Execute(filter, exec);
 
-                    if (exec.Stack.TryPop(out ColumnValue value))
+                    if (FilterIsTrueForCurrentRow(exec, filter))
                     {
-                        if (value.Kind == ValueKind.Boolean && value.Boolean)
-                        {
-                            filteredRows.Add(exec.MainSource.DataProvider.CurrentRowId());
-                        }
+                        filteredRows.Add(exec.MainSource.DataProvider.CurrentRowId());
                     }
                 };
 
@@ -702,6 +746,19 @@ namespace wooby.Database
         private void SetupMainSource(ExecutionContext exec, ColumnReference source)
         {
             SetupMainSource(exec, Context.FindTable(source).Id);
+        }
+
+        private bool FilterIsTrueForCurrentRow(ExecutionContext exec, List<Instruction> filter)
+        {
+            if (filter.Count == 0)
+            {
+                return true;
+            }
+
+            Execute(filter, exec);
+
+            var top = exec.PopStack(true);
+            return filter.Count == 0 || (top != null && top.Kind == ValueKind.Boolean && top.Boolean);
         }
 
         public ExecutionContext Execute(Statement statement)
