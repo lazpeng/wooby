@@ -6,6 +6,7 @@ with the ecosystem, and this is *not* meant to be taken seriously, to be perform
 feature complete or even accurate to the standards at the moment, just a funny side
 project to see how hard it is to get to a somewhat barebones database.
 
+_please don't take the below roadmap too seriously as I'm not following it for some reason_
 My "roadmap" is as follows:
 
 ## v0.1
@@ -35,6 +36,6 @@ My "roadmap" is as follows:
 ## v0.5
 * Saving and loading the database to disk, at least an initial implementation using JSON or something simple to get the persistence working, and then switch backends later
 
-### Current stage: v0.2.2
+### Current stage: v0.3.0
 
 I'll add more stuff as the project advances
