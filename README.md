@@ -7,6 +7,7 @@ feature complete or even accurate to the standards at the moment, just a funny s
 project to see how hard it is to get to a somewhat barebones database.
 
 _please don't take the below roadmap too seriously as I'm not following it for some reason_
+
 My "roadmap" is as follows:
 
 ## v0.1
