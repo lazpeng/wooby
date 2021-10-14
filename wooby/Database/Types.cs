@@ -57,7 +57,7 @@ namespace wooby.Database
     }
 
     // Data for knowing how to order output rows
-    public class RowOrderData
+    public class RowMetaData
     {
         public List<ColumnValue> Values { get; set; } = new List<ColumnValue>();
         public int RowIndex { get; set; }
@@ -214,6 +214,7 @@ namespace wooby.Database
         AuxEqualNumber,
         PushStackTopToOutput,
         PushStackTopToOrdering,
+        PushStackTopToGrouping,
         ExecuteSubQuery,
     }
 
@@ -221,7 +222,8 @@ namespace wooby.Database
     {
         None,
         ToOutput,
-        ToOrdering
+        ToOrdering,
+        ToGrouping,
     }
 
     public class Instruction
@@ -255,7 +257,8 @@ namespace wooby.Database
         public Context Context { get; }
         public ExecutionDataSource MainSource { get; set; }
         public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
-        public List<RowOrderData> OrderingResults { get; set; } = new List<RowOrderData>();
+        public List<RowMetaData> OrderingResults { get; set; } = new List<RowMetaData>();
+        public List<RowMetaData> GroupingResults { get; set; } = new List<RowMetaData>();
         public ExecutionContext Previous { get; set; } = null;
 
         public ExecutionContext(Context ctx)

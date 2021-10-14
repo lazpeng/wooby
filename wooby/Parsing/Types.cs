@@ -52,6 +52,8 @@ namespace wooby.Parsing
             public bool IdentifierAllowed = false;
             // If a single-value subselect is allowed
             public bool SingleValueSubSelectAllowed = false;
+            // If aggregate functions (e.g. SUM, COUNT) are valid in this context
+            public bool AllowAggregateFunctions = false;
         }
 
         public class StatementFlags
@@ -104,6 +106,7 @@ namespace wooby.Parsing
         Asc,
         Desc,
         Order,
+        Group,
         By,
         As,
         Create,
@@ -373,6 +376,7 @@ namespace wooby.Parsing
 
         public List<Expression> OutputColumns { get; private set; } = new List<Expression>();
         public List<Ordering> OutputOrder { get; set; } = new List<Ordering>();
+        public List<ColumnReference> Grouping { get; set; } = new List<ColumnReference>();
         public string Identifier { get; set; } = "";
 
         public override bool Equals(object obj)

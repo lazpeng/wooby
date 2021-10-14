@@ -48,6 +48,7 @@ namespace wooby
         public long Id { get; set; }
         public ColumnType Type { get; set; }
         public List<ColumnType> Parameters { get; set; }
+        public bool IsAggregate { get; set; }
     }
 
     public class Context

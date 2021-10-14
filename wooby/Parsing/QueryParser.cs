@@ -29,6 +29,36 @@ namespace wooby.Parsing
             }
         }
 
+        private static void AssertGroupingIsCorrect(SelectStatement query)
+        {
+            // Verify that when using a group by clause, only group by-columns are referenced in the output
+
+            if (query.Grouping.Count > 0)
+            {
+                if (query.OutputColumns.Any(o => o.IsWildcard()))
+                {
+                    // Not sure if this is correct
+                    throw new Exception("Invalid wildcard when using group by clause");
+                }
+
+                foreach (var output in query.OutputColumns)
+                {
+                    foreach (var node in output.Nodes)
+                    {
+                        if (node.Kind == Expression.NodeKind.Reference)
+                        {
+                            // TODO: Add aggregate functions
+                            // Verify that the used reference is present on the group by clause
+                            if (!query.Grouping.Contains(node.ReferenceValue))
+                            {
+                                throw new Exception("Referencing column not present in group by clause");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement parent)
         {
             int originalOffset = offset;
@@ -41,7 +71,7 @@ namespace wooby.Parsing
 
             // First token is SELECT
             SkipNextToken(input, ref offset);
-            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true, SingleValueSubSelectAllowed = true };
+            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true, SingleValueSubSelectAllowed = true, AllowAggregateFunctions = true };
 
             Token next = null;
 
@@ -90,11 +120,6 @@ namespace wooby.Parsing
                 ResolveSelectReferences(statement, context);
             }
 
-            // Prepare flags for WHERE and ORDER BY expressions
-            exprFlags.GeneralWildcardAllowed = false;
-            exprFlags.WildcardAllowed = false;
-            exprFlags.IdentifierAllowed = false;
-
             do
             {
                 next = NextToken(input, offset);
@@ -109,7 +134,7 @@ namespace wooby.Parsing
                     else if (next.KeywordValue == Keyword.Order)
                     {
                         next = NextToken(input, offset);
-                        AssertTokenIsKeyword(next, Keyword.By, "Unexpected token after ORDER");
+                        AssertTokenIsKeyword(next, Keyword.By, "Unexpected BY after ORDER");
                         offset += next.InputLength;
 
                         bool firstOrder = true;
@@ -146,7 +171,7 @@ namespace wooby.Parsing
 
                             var ordering = new Ordering
                             {
-                                OrderExpression = ParseExpression(input, offset, context, statement, exprFlags, parent == null, false)
+                                OrderExpression = ParseExpression(input, offset, context, statement, new ExpressionFlags { SingleValueSubSelectAllowed = true }, parent == null, false)
                             };
                             offset += ordering.OrderExpression.FullText.Length;
 
@@ -158,6 +183,34 @@ namespace wooby.Parsing
                             }
 
                             statement.OutputOrder.Add(ordering);
+                        }
+                    } else if (next.KeywordValue == Keyword.Group)
+                    {
+                        next = NextToken(input, offset);
+                        offset += next.InputLength;
+                        AssertTokenIsKeyword(next, Keyword.By, "Unexpected BY after GROUP");
+
+                        while (true)
+                        {
+                            next = NextToken(input, offset);
+
+                            if (next.Kind == TokenKind.Comma)
+                            {
+                                if (statement.Grouping.Count == 0)
+                                {
+                                    throw new Exception("Expected column name after ORDER BY");
+                                } else
+                                {
+                                    offset += next.InputLength;
+                                }
+                            } else if (next.Kind == TokenKind.None)
+                            {
+                                break;
+                            }
+
+                            var reference = ParseReference(input, offset, context, statement, new ReferenceFlags { ResolveReferences = true });
+                            statement.Grouping.Add(reference);
+                            offset += reference.InputLength;
                         }
                     }
                 }
@@ -178,6 +231,8 @@ namespace wooby.Parsing
                     throw new Exception($"Unexpected token in query at offset {offset}");
                 }
             } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
+
+            AssertGroupingIsCorrect(statement);
 
             offset = Math.Min(input.Length, offset);
             statement.OriginalText = input[originalOffset..offset];
