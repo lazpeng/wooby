@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
+using wooby.Database.Persistence;
+
 namespace wooby.Database
 {
     class CurrentDate_Function : Function
@@ -120,12 +122,16 @@ namespace wooby.Database
             }
             else return null;
         }
+
+        public void Initialize(Context context, TableMeta meta)
+        {
+        }
     }
 
     public class InMemory_DataProvider : ITableDataProvider
     {
         private long LastRowId = -1;
-        private readonly TableMeta Meta;
+        private TableMeta Meta;
 
         struct Row
         {
@@ -133,18 +139,7 @@ namespace wooby.Database
             public List<ColumnValue> Columns;
         }
 
-        private readonly List<Row> Rows;
-
-        public InMemory_DataProvider(TableMeta Meta)
-        {
-            Rows = new List<Row>();
-            this.Meta = Meta;
-        }
-
-        public InMemory_DataProvider(List<List<ColumnValue>> initialValues)
-        {
-            SetupRows(initialValues);
-        }
+        private List<Row> Rows;
 
         protected void SetupRows(List<List<ColumnValue>> Values)
         {
@@ -237,6 +232,12 @@ namespace wooby.Database
                 }
             }
         }
+
+        public virtual void Initialize(Context context, TableMeta meta)
+        {
+            Rows = new List<Row>();
+            Meta = meta;
+        }
     }
 
     public class LoveLive_DataProvider : InMemory_DataProvider
@@ -264,8 +265,9 @@ namespace wooby.Database
             new Group() { Id = 9, Nome = "AZALEA", Ano = 2016, NumIntegrantes = 3, ParentId = 1 },
         };
 
-        public LoveLive_DataProvider(TableMeta Meta) : base(Meta)
+        public override void Initialize(Context context, TableMeta meta)
         {
+            base.Initialize(context, meta);
             SetupRows(Groups.Select(g =>
                 new List<ColumnValue>()
                 {
