@@ -48,7 +48,7 @@ namespace wooby.Database.Persistence.Json
 
         public Context NewContext(string Name, string WorkingDirectory)
         {
-            var fullPath = Path.Combine(WorkingDirectory, $"{Name}.json");
+            var fullPath = Path.Combine(WorkingDirectory, Name);
             if (new FileInfo(fullPath).Exists)
             {
                 throw new Exception("Target file already exists");

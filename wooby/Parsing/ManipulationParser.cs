@@ -162,11 +162,10 @@ namespace wooby.Parsing
                 SkipNextToken(input, ref offset);
 
                 next = NextToken(input, offset);
+                offset += next.InputLength;
             }
 
             AssertTokenIsKeyword(next, Keyword.Values, "Expected VALUES");
-            offset += next.InputLength;
-
             next = NextToken(input, offset);
             AssertTokenIsOperator(next, Operator.ParenthesisLeft, "Expected a ( after VALUES");
             offset += next.InputLength;

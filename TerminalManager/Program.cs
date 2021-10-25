@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 using wooby;
 using wooby.Database;
+using wooby.Database.Persistence;
 using wooby.Parsing;
 
 namespace TerminalManager
@@ -89,14 +91,47 @@ namespace TerminalManager
             }
         }
 
-        private static void OpenDatabase(string line, ref Context context, ref Machine machine)
+        private static void OpenDatabase(string line, ref Context context, ref Machine machine, ref IContextProvider contextProvider)
         {
+            var filename = line[(line.IndexOf(' ') + 1)..];
 
+            contextProvider = PersistenceBackendHelper.GetContextProvider(filename);
+            if (contextProvider == null)
+            {
+                throw new Exception("Unrecognized database file. Make sure to use the right file extension");
+            }
+
+            context = contextProvider.LoadContext(filename);
+            if (context == null)
+            {
+                throw new Exception("Failed to load database");
+            }
+
+            machine = new Machine();
+            machine.Initialize(context);
         }
 
-        private static void CreateDatabase(string line, ref Context context, ref Machine machine)
+        private static void CreateDatabase(string line, ref Context context, ref Machine machine, ref IContextProvider contextProvider)
         {
+            var firstSpaceIndex = line.IndexOf(' ') + 1;
+            var type = line[firstSpaceIndex..line.IndexOf(' ', firstSpaceIndex)];
+            var filename = line[(line.IndexOf(' ', firstSpaceIndex) + 1)..];
 
+            contextProvider = PersistenceBackendHelper.GetContextProviderForType(type);
+            if (contextProvider == null)
+            {
+                throw new Exception("Unrecognized database type");
+            }
+
+            var info = new FileInfo(filename);
+            context = contextProvider.NewContext(info.Name, info.DirectoryName ?? "");
+            if (context == null)
+            {
+                throw new Exception("Failed to load database");
+            }
+
+            machine = new Machine();
+            machine.Initialize(context);
         }
 
         private static void PrintHelp()
@@ -113,6 +148,7 @@ namespace TerminalManager
         {
             Machine machine = null;
             Context context = null;
+            IContextProvider contextProvider = null;
             var parser = new Parser();
 
             string input;
@@ -129,7 +165,12 @@ namespace TerminalManager
 
                     if (input.Length > 0 && input[0] == '\\')
                     {
-                        var option = input.Substring(0, input.IndexOf(' '));
+                        var space = input.IndexOf(' ');
+                        if (space <= 0)
+                        {
+                            space = input.Length;
+                        }
+                        var option = input.Substring(0, space);
                         switch (option)
                         {
                             case "\\q":
@@ -141,21 +182,24 @@ namespace TerminalManager
                                 PrintHelp();
                                 break;
                             case "\\close":
-                                if (machine == null || context == null)
+                                if (machine == null || context == null || contextProvider == null)
                                 {
                                     throw new Exception("No open database");
                                 }
-                                // TODO: Save?
+
+                                contextProvider.CommitChanges(context);
+
                                 machine = null;
                                 context = null;
+                                contextProvider = null;
                                 break;
                             case "\\o":
                             case "\\open":
-                                OpenDatabase(input, ref context, ref machine);
+                                OpenDatabase(input, ref context, ref machine, ref contextProvider);
                                 break;
                             case "\\c":
                             case "\\create":
-                                CreateDatabase(input, ref context, ref machine);
+                                CreateDatabase(input, ref context, ref machine, ref contextProvider);
                                 break;
                             default:
                                 Console.WriteLine("Unrecognized option.");

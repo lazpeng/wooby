@@ -36,7 +36,7 @@ namespace wooby
         public int Id { get; set; }
         public ColumnFlags Flags { get; set; } = new ColumnFlags();
         public ColumnType Type { get; set; }
-        public TableMeta Parent { get; set; }
+        public long Parent { get; set; }
     }
 
     public class TableMeta
@@ -49,7 +49,7 @@ namespace wooby
 
         public TableMeta AddColumn(string Name, ColumnType Type, ColumnFlags flags = null)
         {
-            var col = new ColumnMeta { Id = Columns.Count, Name = Name, Parent = this, Type = Type, Flags = flags ?? new ColumnFlags() };
+            var col = new ColumnMeta { Id = Columns.Count, Name = Name, Parent = this.Id, Type = Type, Flags = flags ?? new ColumnFlags() };
             Columns.Add(col);
             return this;
         }
