@@ -8,7 +8,7 @@ namespace wooby.Parsing
 {
     public partial class Parser
     {
-        private readonly Dictionary<string, Keyword> keywordDict = new()
+        private readonly Dictionary<string, Keyword> KeywordDict = new()
         {
             { "SELECT", Keyword.Select },
             { "FROM", Keyword.From },
@@ -40,7 +40,7 @@ namespace wooby.Parsing
             { "CONSTRAINT", Keyword.Constraint },
         };
 
-        private readonly Dictionary<string, Operator> operatorDict = new()
+        private readonly Dictionary<string, Operator> OperatorDict = new()
         {
             { "+", Operator.Plus },
             { "-", Operator.Minus },
@@ -60,7 +60,7 @@ namespace wooby.Parsing
             { "||", Operator.Plus }
         };
 
-        private readonly Operator[] booleanOperators = new Operator[]
+        private readonly Operator[] BooleanOperators =
         {
             Operator.Equal,
             Operator.LessThan,
@@ -78,28 +78,23 @@ namespace wooby.Parsing
             {
                 return TokenKind.LiteralNumber;
             }
-            else if (first == '\"' || first == '_' || char.IsLetter(first))
+            if (first is '\"' or '_' || char.IsLetter(first))
             {
                 return TokenKind.Symbol;
             }
-            else if (operatorDict.ContainsKey(input.Substring(offset, 1)) || operatorDict.ContainsKey(input.Substring(offset, 2)))
+            if (OperatorDict.ContainsKey(input.Substring(offset, 1)) || OperatorDict.ContainsKey(input.Substring(offset, 2)))
             {
                 return TokenKind.Operator;
             }
-            else return TokenKind.None;
+            return TokenKind.None;
         }
 
         private static int SkipWhitespace(string input, int offset)
         {
-            int original = offset;
+            var original = offset;
 
-            foreach (var c in input[offset..])
+            foreach (var c in input[offset..].TakeWhile(char.IsWhiteSpace))
             {
-                if (!char.IsWhiteSpace(c))
-                {
-                    break;
-                }
-
                 ++offset;
             }
 
@@ -163,43 +158,21 @@ namespace wooby.Parsing
             offset += token.InputLength;
         }
 
-        private string NextSymbol(string input, int offset, out int length, string errorMessage)
-        {
-            var next = NextToken(input, offset);
-            length = next.InputLength;
-
-            AssertTokenIsSymbol(next, errorMessage);
-
-            return next.StringValue;
-        }
-
         private Token ParseSymbol(string input, int offset)
         {
-            int originalOffset = offset;
+            var originalOffset = offset;
 
             offset += SkipWhitespace(input, offset);
-            int start = offset;
+            var start = offset;
 
-            foreach (var c in input[offset..])
+            foreach (var c in input[offset..].TakeWhile(c => (c != '\"' || originalOffset == offset) && !char.IsWhiteSpace(c) && (char.IsDigit(c) || char.IsLetter(c) || c == '_') && !char.IsControl(c)))
             {
-                if ((c == '\"' && originalOffset != offset) || char.IsWhiteSpace(c) || !(char.IsDigit(c) || char.IsLetter(c) || c == '_') || char.IsControl(c))
-                {
-                    break;
-                }
-
                 ++offset;
             }
 
-            string symbol = input[start..offset];
+            var symbol = input[start..offset];
 
-            if (keywordDict.TryGetValue(symbol.ToUpper(), out Keyword keyword))
-            {
-                return new Token { Kind = TokenKind.Keyword, KeywordValue = keyword, InputLength = offset - originalOffset };
-            }
-            else
-            {
-                return new Token { Kind = TokenKind.Symbol, StringValue = symbol, InputLength = offset - originalOffset };
-            }
+            return KeywordDict.TryGetValue(symbol.ToUpper(), out var keyword) ? new Token { Kind = TokenKind.Keyword, KeywordValue = keyword, InputLength = offset - originalOffset } : new Token { Kind = TokenKind.Symbol, StringValue = symbol, InputLength = offset - originalOffset };
         }
 
         private static Token ParseString(string input, int offset)
@@ -303,18 +276,16 @@ namespace wooby.Parsing
         {
             var original = offset;
             offset += SkipWhitespace(input, offset);
-            if (input.Length - offset > 2 && operatorDict.TryGetValue(input.Substring(offset, 2), out Operator op))
+            if (input.Length - offset > 2 && OperatorDict.TryGetValue(input.Substring(offset, 2), out Operator op))
             {
                 return new Token { Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(), InputLength = offset - original + 2 };
             }
-            else if (operatorDict.TryGetValue(input.Substring(offset, 1), out Operator o))
+            if (OperatorDict.TryGetValue(input.Substring(offset, 1), out Operator o))
             {
                 return new Token { Kind = TokenKind.Operator, OperatorValue = o, StringValue = input[offset].ToString(), InputLength = offset - original + 1 };
             }
-            else
-            {
-                return null;
-            }
+            
+            return null;
         }
 
         public Statement ParseStatement(string input, Context context)
@@ -419,12 +390,12 @@ namespace wooby.Parsing
             }
         }
 
-        private List<Expression> ParseFunctionArguments(string input, ref int og_offset, Context context, Statement statement, bool resolveReferences)
+        private List<Expression> ParseFunctionArguments(string input, ref int ogOffset, Context context, Statement statement, bool resolveReferences)
         {
             var exprs = new List<Expression>();
             var flags = new ExpressionFlags { GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false };
 
-            int offset = og_offset;
+            var offset = ogOffset;
 
             while (true)
             {
@@ -456,7 +427,7 @@ namespace wooby.Parsing
                 offset += expr.FullText.Length;
             }
 
-            og_offset = offset;
+            ogOffset = offset;
 
             return exprs;
         }
@@ -623,7 +594,7 @@ namespace wooby.Parsing
 
                     lastWasOperator = true;
 
-                    if (booleanOperators.Contains(token.OperatorValue))
+                    if (BooleanOperators.Contains(token.OperatorValue))
                     {
                         expr.IsBoolean = true;
                     }
@@ -667,22 +638,17 @@ namespace wooby.Parsing
                     }
                     else if (token.OperatorValue == Operator.ParenthesisRight)
                     {
-                        if (!root || insideFunction || !statement.UsedFlags.StopOnUnmatchedParenthesis)
-                        {
-                            if (insideFunction || !statement.UsedFlags.StopOnUnmatchedParenthesis)
-                            {
-                                offset -= token.InputLength;
-                            }
-                            else if (expr.Nodes[^2].Kind == Expression.NodeKind.Function)
-                            {
-                                expr.Nodes.RemoveAt(expr.Nodes.Count - 1);
-                            }
-                            break;
-                        }
-                        else
-                        {
+                        if (root && !insideFunction && statement.UsedFlags.StopOnUnmatchedParenthesis)
                             throw new Exception("Missing left parenthesis");
+                        if (insideFunction || !statement.UsedFlags.StopOnUnmatchedParenthesis)
+                        {
+                            offset -= token.InputLength;
                         }
+                        else if (expr.Nodes[^2].Kind == Expression.NodeKind.Function)
+                        {
+                            expr.Nodes.RemoveAt(expr.Nodes.Count - 1);
+                        }
+                        break;
                     }
 
                     lastWasReference = false;
@@ -695,7 +661,7 @@ namespace wooby.Parsing
                     {
                         throw new Exception("Two subsequent values in expression");
                     }
-                    else if (expr.IsWildcard())
+                    if (expr.IsWildcard())
                     {
                         throw new Exception("Unexpected token after wildcard");
                     }
@@ -967,7 +933,7 @@ namespace wooby.Parsing
 
         private int ParseWhere(string input, int offset, Context context, Statement statement)
         {
-            int originalOffset = offset;
+            var originalOffset = offset;
             if (statement.FilterConditions != null)
             {
                 throw new Exception("Unexpected WHERE when filter has already been set");
