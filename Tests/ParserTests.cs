@@ -1,6 +1,9 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
+
 using wooby;
 using wooby.Database;
 using wooby.Parsing;
@@ -63,33 +66,16 @@ namespace Tests
         }
 
         [TestMethod]
-        public void TestBasicColumnReference()
-        {
-            var ctx = new Machine().Initialize();
-            var table = new TableMeta() { Name = "table" };
-            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
-            ctx.AddTable(table);
-
-            var input = "table.a";
-
-            var parser = new Parser();
-            var reference = parser.ParseReference(input, 0, ctx, new SelectStatement(), new Parser.ReferenceFlags() { ResolveReferences = true });
-            var expected = new ColumnReference() { Column = "a", Table = "table", InputLength = input.Length };
-
-            Assert.AreEqual(reference, expected);
-        }
-
-        [TestMethod]
         public void TestTableReference()
         {
             var ctx = new Machine().Initialize();
-            ctx.AddTable(new TableMeta() { Name = "table" });
+            ctx.AddTable(new TableMeta() { Name = "t" });
 
-            var input = "table";
+            var input = "t";
 
             var parser = new Parser();
             var reference = parser.ParseReference(input, 0, ctx, new SelectStatement(), new Parser.ReferenceFlags() { TableOnly = true });
-            var expected = new ColumnReference() { Table = "table" };
+            var expected = new ColumnReference() { Table = "t" };
 
             Assert.AreEqual(reference, expected);
         }
@@ -161,17 +147,17 @@ namespace Tests
         [TestMethod]
         public void TestBasicSelect()
         {
-            var input = "select * from table";
+            var input = "select * from t";
 
             var ctx = new Context();
-            ctx.AddTable(new TableMeta() { Name = "table" });
+            ctx.AddTable(new TableMeta() { Name = "t" });
 
             var command = new Parser().ParseStatement(input, ctx);
             Assert.IsTrue(command is SelectStatement);
 
             var expected = new SelectStatement()
             {
-                MainSource = new ColumnReference() { Table = "table" }
+                MainSource = new ColumnReference() { Table = "t" }
             };
 
             expected.OutputColumns.Add(new Expression()
@@ -190,18 +176,18 @@ namespace Tests
         [TestMethod]
         public void TestMoreCompleteSelect()
         {
-            var input = "select * from table where 1=1 order by a desc";
+            var input = "select * from t where 1=1 order by a desc";
 
             var ctx = new Context();
             var column = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
-            ctx.Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { column } });
+            ctx.Tables.Add(new TableMeta() { Name = "t", Columns = new List<ColumnMeta>() { column } });
 
             var command = new Parser().ParseStatement(input, ctx);
             Assert.IsTrue(command is SelectStatement);
 
             var expected = new SelectStatement()
             {
-                MainSource = new ColumnReference() { Table = "table" },
+                MainSource = new ColumnReference() { Table = "t" },
                 OutputOrder = new List<Ordering>()
                 {
                     new Ordering()
@@ -250,14 +236,30 @@ namespace Tests
         }
 
         [TestMethod]
+        [ExpectedException(typeof(Exception))]
+        public void FailWithInvalidTableName()
+        {
+            // Uses reserved keyword TABLE
+            var input = "select CURRENT_DATE(), a, table.b from table";
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "t" }
+            .AddColumn("a", ColumnType.Number)
+            .AddColumn("b", ColumnType.String);
+            ctx.AddTable(table);
+
+            new Parser().ParseStatement(input, ctx);
+            Assert.Fail("Did not raise parser exception");
+        }
+
+        [TestMethod]
         public void TestSelectWithFunctionAndColumn()
         {
-            var input = "select CURRENT_DATE(), a, table.b from table";
+            var input = "select CURRENT_DATE(), a, t.b from t";
 
             var ctx = new Machine().Initialize();
-            var table = new TableMeta() { Name = "table" };
-            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
-            Context.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.String }, table);
+            var table = new TableMeta() { Name = "t" }
+            .AddColumn("a", ColumnType.Number)
+            .AddColumn("b", ColumnType.String);
             ctx.AddTable(table);
 
             var command = new Parser().ParseStatement(input, ctx);
@@ -265,7 +267,7 @@ namespace Tests
 
             var expected = new SelectStatement()
             {
-                MainSource = new ColumnReference() { Table = "table", Identifier = "table", InputLength = 6 },
+                MainSource = new ColumnReference() { Table = "t", Identifier = "t", InputLength = 6 },
                 OriginalText = input
             };
 
@@ -287,18 +289,18 @@ namespace Tests
                 Identifier = "a",
                 Nodes = new List<Expression.Node>
                 {
-                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "a", Table = "table" } }
+                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "a", Table = "t" } }
                 }
             });
 
             expected.OutputColumns.Add(new Expression()
             {
                 Type = Expression.ExpressionType.String,
-                FullText = "table.b",
-                Identifier = "table.b",
+                FullText = "t.b",
+                Identifier = "t.b",
                 Nodes = new List<Expression.Node>
                 {
-                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "b", Table = "table" } }
+                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "b", Table = "t" } }
                 }
             });
 
@@ -309,9 +311,6 @@ namespace Tests
         public void TestNullExpression()
         {
             var ctx = new Machine().Initialize();
-            var table = new TableMeta() { Name = "table" };
-            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
-            ctx.AddTable(table);
 
             var input = "NULL";
 
@@ -325,15 +324,14 @@ namespace Tests
         [TestMethod]
         public void TestNamedExpression()
         {
-            var input = "table.a as name FROM";
+            var input = "select t.a as name FROM t";
 
             var ctx = new Machine().Initialize();
-            var table = new TableMeta() { Name = "table" };
-            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            var table = new TableMeta() { Name = "t" }.AddColumn("a", ColumnType.Number);
             ctx.AddTable(table);
 
-            var parser = new Parser();
-            var result = parser.ParseExpression(input, 0, ctx, new SelectStatement(), new Parser.ExpressionFlags() { IdentifierAllowed = true }, true, false);
+            SelectStatement statement = (SelectStatement) new Parser().ParseStatement(input, ctx);
+            var result = statement.OutputColumns[0];
 
             Assert.IsNotNull(result.Identifier);
             Assert.AreEqual(result.Identifier, "name");
@@ -342,15 +340,14 @@ namespace Tests
         [TestMethod]
         public void TestReferenceOnlyExpression()
         {
-            var input = "table.a";
+            var input = "SELECT t.a FROM t";
 
             var ctx = new Machine().Initialize();
-            var table = new TableMeta() { Name = "table" };
-            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            var table = new TableMeta() { Name = "t" }.AddColumn("a", ColumnType.Number);
             ctx.AddTable(table);
 
-            var parser = new Parser();
-            var result = parser.ParseExpression(input, 0, ctx, new SelectStatement(), new Parser.ExpressionFlags(), true, false);
+            SelectStatement statement = (SelectStatement)new Parser().ParseStatement(input, ctx);
+            var result = statement.OutputColumns[0];
 
             Assert.IsTrue(result.IsOnlyReference());
         }
@@ -392,9 +389,9 @@ namespace Tests
             var input = "SELECT * FROM a ORDER BY b desc, c";
 
             var ctx = new Machine().Initialize();
-            var table = new TableMeta() { Name = "a" };
-            Context.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.Number }, table);
-            Context.AddColumn(new ColumnMeta() { Name = "c", Type = ColumnType.Number }, table);
+            var table = new TableMeta() { Name = "a" }
+            .AddColumn("b", ColumnType.Number)
+            .AddColumn("c", ColumnType.Number);
             ctx.AddTable(table);
 
             var result = new Parser().ParseSelect(input, 0, ctx, new Parser.StatementFlags(), null);

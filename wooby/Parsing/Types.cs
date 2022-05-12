@@ -211,6 +211,11 @@ namespace wooby.Parsing
             return nodes.Any() && nodes.First().IsWildcard();
         }
 
+        public static bool IsTokenInvalidForExpressionStart(Token token)
+        {
+            return new TokenKind[] { TokenKind.Keyword, TokenKind.Dot, TokenKind.SemiColon, TokenKind.Comma }.Contains(token.Kind);
+        }
+
         public bool IsOnlyReference()
         {
             return Nodes.Count == 1 && Nodes[0].Kind == NodeKind.Reference;
