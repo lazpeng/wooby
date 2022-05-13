@@ -580,7 +580,7 @@ namespace wooby.Database
             var flags = new EvaluationFlags { Origin = ExpressionOrigin.OutputColumn, Phase = QueryEvaluationPhase.Final };
 
             // Reset since we're gonna read from it again if needed
-            exec.MainSource.DataProvider.Seek(0);
+            exec.MainSource.DataProvider.SeekFirst();
             // For simplicity, we only allow for grouping by a column name for now
             // TODO: Grouping by expression
             // Should be an easy enough fix
@@ -590,7 +590,6 @@ namespace wooby.Database
                 var groups = GroupRowsRecursive(exec, originalTempRows, 0, query);
                 foreach (var group in groups)
                 {
-                    exec.MainSource.DataProvider.SeekNext();
                     exec.TempRows = group;
 
                     var row = new List<ColumnValue>();
@@ -607,6 +606,7 @@ namespace wooby.Database
 
                     exec.QueryOutput.Rows.Add(row);
                     exec.IncrementRowNumber();
+                    exec.MainSource.DataProvider.SeekNext();
                 }
                 exec.TempRows = FlattenTempRows(exec, groups, query);
             }
@@ -614,7 +614,6 @@ namespace wooby.Database
             {
                 foreach (var temp in exec.TempRows)
                 {
-                    exec.MainSource.DataProvider.SeekNext();
                     var r = new List<ColumnValue>();
                     // For each sub group, now generate one output row
                     foreach (var expr in query.OutputColumns)
@@ -636,6 +635,7 @@ namespace wooby.Database
                         // there will only be one resulting row in the output
                         break;
                     }
+                    exec.MainSource.DataProvider.SeekNext();
                 }
             }
         }

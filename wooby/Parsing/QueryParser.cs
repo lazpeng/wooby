@@ -18,6 +18,11 @@ namespace wooby.Parsing
                 }
             }
 
+            if (statement.FilterConditions != null)
+            {
+                ResolveUnresolvedReferences(statement.FilterConditions, context, statement);
+            }
+
             if (statement.Parent != null)
             {
                 ResolveUnresolvedReferences(statement.FilterConditions, context, statement);
@@ -163,11 +168,6 @@ namespace wooby.Parsing
             statement.MainSource = source;
             offset += source.InputLength;
 
-            // If we have a parent, they're going to resolve our references for us
-            if (parent == null)
-            {
-                ResolveSelectReferences(statement, context);
-            }
 
             do
             {
@@ -280,6 +280,12 @@ namespace wooby.Parsing
                     throw new Exception($"Unexpected token in query at offset {offset}");
                 }
             } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
+
+            // If we have a parent, they're going to resolve our references for us
+            if (parent == null)
+            {
+                ResolveSelectReferences(statement, context);
+            }
 
             AssertGroupingIsCorrect(statement);
             ExpandWildcards(context, statement);
