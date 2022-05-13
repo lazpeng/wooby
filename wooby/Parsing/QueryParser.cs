@@ -59,6 +59,51 @@ namespace wooby.Parsing
             }
         }
 
+        private static void ExpandWildcards(Context context, SelectStatement query)
+        {
+            if (query.OutputColumns.Any(e => e.IsWildcard()))
+            {
+                var newOutput = new List<Expression>();
+
+                foreach (var expr in query.OutputColumns)
+                {
+                    if (expr.IsWildcard())
+                    {
+                        if (expr.IsOnlyReference())
+                        {
+                            var wild = expr.Nodes[0].ReferenceValue;
+                            var table = context.FindTable(wild);
+
+                            foreach (var col in table.Columns)
+                            {
+                                var reference = new ColumnReference { Column = col.Name, Table = table.Name };
+                                var node = new Expression.Node { Kind = Expression.NodeKind.Reference, ReferenceValue = reference };
+                                newOutput.Add(Expression.WithSingleNode(node, Expression.ExpressionType.Unknown, reference.Join()));
+                            }
+                        } else
+                        {
+                            // TODO: Should bring all tables
+                            var table = context.FindTable(query.MainSource);
+
+                            foreach (var col in table.Columns)
+                            {
+                                var reference = new ColumnReference { Column = col.Name, Table = table.Name };
+                                var node = new Expression.Node { Kind = Expression.NodeKind.Reference, ReferenceValue = reference };
+                                var colExpr = Expression.WithSingleNode(node, Expression.ExpressionType.Unknown, reference.Join());
+                                colExpr.Identifier = col.Name;
+                                newOutput.Add(colExpr);
+                            }
+                        }
+                    } else
+                    {
+                        newOutput.Add(expr);
+                    }
+                }
+
+                query.OutputColumns = newOutput;
+            }
+        }
+
         public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement parent)
         {
             int originalOffset = offset;
@@ -102,7 +147,6 @@ namespace wooby.Parsing
                     throw new Exception("Unrecognized token at start of expression in output definition");
                 }
                 var expr = ParseExpression(input, offset, context, statement, exprFlags, false, false);
-
                 if (statement.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
                 {
                     throw new Exception("Unexpected token *");
@@ -208,7 +252,7 @@ namespace wooby.Parsing
                                 {
                                     offset += next.InputLength;
                                 }
-                            } else if (next.Kind == TokenKind.None)
+                            } else if (next.Kind == TokenKind.None || next.Kind == TokenKind.Keyword)
                             {
                                 break;
                             }
@@ -238,6 +282,7 @@ namespace wooby.Parsing
             } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
 
             AssertGroupingIsCorrect(statement);
+            ExpandWildcards(context, statement);
 
             offset = Math.Min(input.Length, offset);
             statement.OriginalText = input[originalOffset..offset];

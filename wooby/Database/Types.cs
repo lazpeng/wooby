@@ -45,6 +45,32 @@ namespace wooby.Database
         }
     }
 
+    public class TempRow
+    {
+        public Dictionary<string, ColumnValue> EvaluatedReferences = new ();
+        public long RowId;
+    }
+
+    public enum QueryEvaluationPhase
+    {
+        Caching,
+        Final
+    }
+
+    public enum ExpressionOrigin
+    {
+        OutputColumn,
+        Ordering,
+        Filter,
+        Grouping
+    }
+
+    public class EvaluationFlags
+    {
+        public QueryEvaluationPhase Phase { get; set; }
+        public ExpressionOrigin Origin { get; set; }
+    }
+
     public class OutputColumnMeta
     {
         public string OutputName { get; set; }
@@ -94,8 +120,9 @@ namespace wooby.Database
         public abstract ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments);
         public ColumnType ResultType { get; protected set; }
         public string Name { get; protected set; }
-        public List<ColumnType> Parameters { get; set; }
-        public readonly long Id;
+        public List<ColumnType> Parameters { get; protected set; }
+        public long Id { get; protected set; }
+        public bool IsAggregate { get; protected set; } = false;
 
         public Function(long Id)
         {
@@ -137,6 +164,11 @@ namespace wooby.Database
                 CurrentValues = result;
             }
             return result != null;
+        }
+
+        public bool SeekFirst()
+        {
+            return Seek(long.MinValue);
         }
 
         public long CurrentRowId()
@@ -247,11 +279,28 @@ namespace wooby.Database
         public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
         public List<RowMetaData> OrderingResults { get; set; } = new List<RowMetaData>();
         public List<RowMetaData> GroupingResults { get; set; } = new List<RowMetaData>();
+        public List<TempRow> TempRows { get; set; } = new List<TempRow>();
         public ExecutionContext Previous { get; set; } = null;
+        public int RowNumber { get; private set; }
 
         public ExecutionContext(Context ctx)
         {
             Context = ctx;
+        }
+
+        public void ResetRowNumber()
+        {
+            RowNumber = 0;
+        }
+
+        public void IncrementRowNumber()
+        {
+            RowNumber += 1;
+        }
+
+        public TempRow CreateTempRow()
+        {
+            return new TempRow { RowId = MainSource.DataProvider.CurrentRowId() };
         }
 
         public ColumnValue PopStack(bool returnNull = false)

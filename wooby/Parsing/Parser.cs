@@ -356,6 +356,10 @@ namespace wooby.Parsing
                 }
 
                 ValidateFunctionCall(context, node.FunctionCall);
+                if (fun.IsAggregate)
+                {
+                    expr.HasAggregateFunction = true;
+                }
             }
             else if (node.Kind == Expression.NodeKind.Number)
             {
@@ -439,6 +443,8 @@ namespace wooby.Parsing
             {
                 throw new Exception($"Undefined reference to function \"{func.Name}\"");
             }
+
+            func.IsAggregate = function.IsAggregate;
 
             if (function.Parameters.Count != func.Arguments.Count)
             {

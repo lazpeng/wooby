@@ -86,7 +86,7 @@ namespace wooby
 
         public void AddFunction(Function v)
         {
-            Functions.Add(new FunctionMeta() { Id = v.Id, Name = v.Name, Type = v.ResultType, Parameters = v.Parameters });
+            Functions.Add(new FunctionMeta() { Id = v.Id, Name = v.Name, Type = v.ResultType, Parameters = v.Parameters, IsAggregate = v.IsAggregate });
         }
 
         public TableMeta FindTable(ColumnReference reference)
