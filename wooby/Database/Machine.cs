@@ -912,6 +912,16 @@ namespace wooby.Database
                         var call = node.FunctionCall;
                         if (tempRow == null || !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
                         {
+                            if (call.IsAggregate)
+                            {
+                                if (flags.Origin == ExpressionOrigin.Grouping || flags.Origin == ExpressionOrigin.Filter)
+                                {
+                                    throw new Exception("Invalid use of aggregate function");
+                                } else if (flags.Phase != QueryEvaluationPhase.Final)
+                                {
+                                    throw new Exception("Internal error: Tried to evaluate aggregate function in caching phase");
+                                }
+                            }
                             value = EvaluateFunctionCall(exec, call, tempRow, flags);
                         }
                         exec.Stack.Push(value);
@@ -1027,6 +1037,7 @@ namespace wooby.Database
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
         {
             SetupMainSource(exec, query.MainSource);
+            exec.ResetRowNumber();
 
             foreach (var output in query.OutputColumns)
             {
