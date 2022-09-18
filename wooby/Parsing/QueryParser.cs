@@ -25,8 +25,6 @@ namespace wooby.Parsing
 
             if (statement.Parent != null)
             {
-                ResolveUnresolvedReferences(statement.FilterConditions, context, statement);
-
                 foreach (var order in statement.OutputOrder)
                 {
                     ResolveUnresolvedReferences(order.OrderExpression, context, statement);

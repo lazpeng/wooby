@@ -205,7 +205,7 @@ namespace wooby.Parsing
             else if (next.Kind == TokenKind.None) { } // Ok
             else
             {
-                throw new Exception("Unexpected token after DELETE");
+                throw new Exception("Unexpected token after UPDATE");
             }
 
             statement.OriginalText = input[originalOffset..offset];
