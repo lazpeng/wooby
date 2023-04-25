@@ -49,6 +49,7 @@ namespace wooby.Database
     {
         public Dictionary<string, ColumnValue> EvaluatedReferences = new ();
         public long RowId;
+        public int RowIndex;
     }
 
     public enum QueryEvaluationPhase
@@ -300,7 +301,7 @@ namespace wooby.Database
 
         public TempRow CreateTempRow()
         {
-            return new TempRow { RowId = MainSource.DataProvider.CurrentRowId() };
+            return new TempRow { RowId = MainSource.DataProvider.CurrentRowId(), RowIndex = RowNumber };
         }
 
         public ColumnValue PopStack(bool returnNull = false)

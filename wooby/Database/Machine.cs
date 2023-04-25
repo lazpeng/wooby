@@ -437,7 +437,7 @@ namespace wooby.Database
             throw new ArgumentException("Invalid arguments provided for subtraction");
         }
 
-        private void PrepareQueryOutput(ExecutionContext exec, SelectStatement query, Expression expr)
+        private static void PrepareQueryOutput(ExecutionContext exec, SelectStatement query, Expression expr)
         {
             var id = expr.Identifier;
             if (string.IsNullOrEmpty(id))
@@ -453,38 +453,31 @@ namespace wooby.Database
             var result = new List<RowOrderingIntermediate>();
             var ascending = query.OutputOrder[colIndex].Kind == OrderingKind.Ascending;
 
-            IEnumerable<RowMetaData> input;
+            IEnumerable<TempRow> input;
             if (indexes != null && indexes.Count > 0)
             {
-                input = exec.OrderingResults.Where(r => indexes.Contains(r.RowIndex));
+                input = exec.TempRows.Where(r => indexes.Contains(r.RowIndex));
             }
             else
             {
-                input = exec.OrderingResults.AsEnumerable();
+                input = exec.TempRows.AsEnumerable();
             }
 
-            var groups = input.GroupBy(row => row.Values[colIndex], new ColumnValueComparer()).OrderBy(r => r.Key, new ColumnValueComparer());
-            if (ascending)
+            var reference = query.OutputOrder[colIndex].OrderExpression;
+            if (!reference.IsOnlyReference())
             {
-                foreach (var group in groups)
-                {
-                    result.Add(new RowOrderingIntermediate()
-                    {
-                        DistinctValue = group.Key,
-                        MatchingRows = group.Select(row => row.RowIndex).ToList()
-                    });
-                }
+                throw new NotImplementedException();
             }
-            else
+            var name = reference.Nodes[0].ReferenceValue.Join();
+            var groups = input.GroupBy(row => row.EvaluatedReferences[name], new ColumnValueComparer()).OrderBy(r => r.Key, new ColumnValueComparer());
+            var cursor = ascending ? groups : groups.Reverse();
+            foreach (var group in cursor)
             {
-                foreach (var group in groups.Reverse())
+                result.Add(new RowOrderingIntermediate()
                 {
-                    result.Add(new RowOrderingIntermediate()
-                    {
-                        DistinctValue = group.Key,
-                        MatchingRows = group.Select(row => row.RowIndex).ToList()
-                    });
-                }
+                    DistinctValue = group.Key,
+                    MatchingRows = group.Select(row => row.RowIndex).ToList()
+                });
             }
 
             return result;
