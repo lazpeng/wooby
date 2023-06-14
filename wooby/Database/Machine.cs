@@ -16,12 +16,17 @@ namespace wooby.Database
         private static readonly List<Operator> BooleanOperators = new List<Operator>
         {
             Operator.Equal, Operator.NotEqual, Operator.LessEqual, Operator.MoreEqual, Operator.MoreThan,
-            Operator.LessThan
+            Operator.LessThan, Operator.And, Operator.Or
         };
 
         private static bool OperatorIsBoolean(Operator op)
         {
             return BooleanOperators.Contains(op);
+        }
+
+        private static bool OperatorIsLowerBoolean(Operator op)
+        {
+            return op == Operator.And || op == Operator.Or;
         }
 
         public Context Initialize()
@@ -299,6 +304,26 @@ namespace wooby.Database
             var left = context.Stack.Pop();
 
             return IsGreater(left, right, orEqual);
+        }
+
+        private static ColumnValue And(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            var boolean = right.Kind == ValueKind.Boolean && right.Boolean && left.Kind == ValueKind.Boolean &&
+                          left.Boolean;
+            return new ColumnValue {Kind = ValueKind.Boolean, Boolean = boolean};
+        }
+
+        private static ColumnValue Or(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            var boolean = (right.Kind == ValueKind.Boolean && right.Boolean) || (left.Kind == ValueKind.Boolean &&
+                          left.Boolean);
+            return new ColumnValue {Kind = ValueKind.Boolean, Boolean = boolean};
         }
 
         private static ColumnValue Divide(ExecutionContext context)
@@ -834,6 +859,12 @@ namespace wooby.Database
                 case Operator.MoreEqual:
                     exec.Stack.Push(Greater(exec, true));
                     break;
+                case Operator.And:
+                    exec.Stack.Push(And(exec));
+                    break;
+                case Operator.Or:
+                    exec.Stack.Push(Or(exec));
+                    break;
             }
         }
 
@@ -942,7 +973,7 @@ namespace wooby.Database
 
                     if (OperatorIsBoolean(node.OperatorValue))
                     {
-                        while (opStack.Count > 0)
+                        while (opStack.Count > 0 && !OperatorIsLowerBoolean(opStack.Last()))
                         {
                             PerformOperationOnStack(exec, opStack.Pop());
                         }

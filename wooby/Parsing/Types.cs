@@ -96,6 +96,8 @@ namespace wooby.Parsing
         Equal,
         NotEqual,
         Remainder,
+        And,
+        Or,
     }
 
     public enum Keyword

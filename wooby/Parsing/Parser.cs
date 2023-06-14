@@ -111,6 +111,20 @@ namespace wooby.Parsing
             return offset - original;
         }
 
+        private static bool IsKeywordOperator(Keyword kw, out Operator op)
+        {
+            const Operator defaultValue = Operator.ParenthesisLeft;
+            
+            op = kw switch
+            {
+                Keyword.And => Operator.And,
+                Keyword.Or => Operator.Or,
+                _ => defaultValue
+            };
+
+            return op != defaultValue;
+        }
+
         public Token NextToken(string input, int offset = 0)
         {
             if (offset >= input.Length)
@@ -135,6 +149,15 @@ namespace wooby.Parsing
                     _ => new Token {Kind = TokenKind.None}
                 }
             };
+
+            if (result.Kind == TokenKind.Keyword)
+            {
+                if (IsKeywordOperator(result.KeywordValue, out var op))
+                {
+                    result.Kind = TokenKind.Operator;
+                    result.OperatorValue = op;
+                }
+            }
 
             result.FullText = input.Substring(originalOffset, offset - originalOffset);
 
