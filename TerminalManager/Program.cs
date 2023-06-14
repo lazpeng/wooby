@@ -28,7 +28,7 @@ namespace TerminalManager
                 var definition = result.QueryOutput.Definition[i];
 
                 col.Title = definition.OutputName;
-                col.Rows = result.QueryOutput.Rows.Select(r => r[i].PrettyPrint()).ToList();
+                col.Rows = result.QueryOutput.Rows.Select(r => r.Values[i].PrettyPrint()).ToList();
 
                 col.Length = Math.Max(col.Title.Length, col.Rows.Count > 0 ? col.Rows.Max(s => s.Length) : 0);
                 columns[i] = col;

@@ -79,7 +79,7 @@ namespace wooby.Database
     public class Output
     {
         public List<OutputColumnMeta> Definition { get; set; } = new List<OutputColumnMeta>();
-        public List<List<ColumnValue>> Rows { get; set; } = new List<List<ColumnValue>>();
+        public List<OutputRow> Rows { get; set; } = new List<OutputRow>();
     }
 
     // Data for knowing how to order output rows
@@ -89,20 +89,29 @@ namespace wooby.Database
         public int RowIndex { get; set; }
     }
 
+    public struct OutputRow
+    {
+        public List<ColumnValue> Values;
+        public long RowId;
+
+        public OutputRow()
+        {
+            Values = new List<ColumnValue>();
+            RowId = 0;
+        }
+    }
+
     public class RowOrderingIntermediate
     {
         public ColumnValue DistinctValue { get; set; }
-        public List<int> MatchingRows { get; set; }
+        public List<long> MatchingRows { get; set; }
         public List<RowOrderingIntermediate> SubOrdering { get; set; }
 
-        public void Collect(ExecutionContext exec, List<List<ColumnValue>> target)
+        public void Collect(ExecutionContext exec, List<OutputRow> target)
         {
-            if (MatchingRows != null && MatchingRows.Count > 0)
+            if (MatchingRows != null && MatchingRows.Any())
             {
-                foreach (var idx in MatchingRows)
-                {
-                    target.Add(exec.QueryOutput.Rows[idx]);
-                }
+                target.AddRange(exec.QueryOutput.Rows.Where(r => MatchingRows.Contains(r.RowId)));
             } else
             {
                 foreach (var sub in SubOrdering)

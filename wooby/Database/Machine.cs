@@ -92,7 +92,7 @@ namespace wooby.Database
 
         private static void CheckOutputRows(ExecutionContext context)
         {
-            if (context.QueryOutput.Rows.Count == 1 && context.QueryOutput.Rows[0].All(v => v.Kind == ValueKind.Null))
+            if (context.QueryOutput.Rows.Count == 1 && context.QueryOutput.Rows[0].Values.All(v => v.Kind == ValueKind.Null))
             {
                 context.QueryOutput.Rows.RemoveAt(0);
             }
@@ -416,15 +416,15 @@ namespace wooby.Database
             exec.QueryOutput.Definition.Add(new OutputColumnMeta() {OutputName = id, Visible = true});
         }
 
-        private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query, List<int> indexes, int colIndex)
+        private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query, List<long> ids, int colIndex)
         {
             var result = new List<RowOrderingIntermediate>();
             var ascending = query.OutputOrder[colIndex].Kind == OrderingKind.Ascending;
 
             IEnumerable<TempRow> input;
-            if (indexes != null && indexes.Count > 0)
+            if (ids != null && ids.Any())
             {
-                input = exec.TempRows.Where(r => indexes.Contains(r.RowIndex));
+                input = exec.TempRows.Where(r => ids.Contains(r.RowId));
             }
             else
             {
@@ -444,7 +444,7 @@ namespace wooby.Database
                 result.Add(new RowOrderingIntermediate()
                 {
                     DistinctValue = group.Key,
-                    MatchingRows = group.Select(row => row.RowIndex).ToList()
+                    MatchingRows = group.Select(row => row.RowId).ToList()
                 });
             }
 
@@ -473,7 +473,7 @@ namespace wooby.Database
                 var group = BuildFromRows(exec, query, null, 0);
                 OrderSub(exec, query, group, 1);
 
-                var newResult = new List<List<ColumnValue>>(exec.QueryOutput.Rows.Count);
+                var newResult = new List<OutputRow>(exec.QueryOutput.Rows.Count);
                 foreach (var item in group)
                 {
                     item.Collect(exec, newResult);
@@ -546,7 +546,7 @@ namespace wooby.Database
             if (query.Distinct)
             {
                 exec.QueryOutput.Rows = exec.QueryOutput.Rows
-                    .GroupBy(row => string.Join(',', row.Select(col => col.PrettyPrint())))
+                    .GroupBy(row => string.Join(',', row.Values.Select(col => col.PrettyPrint())))
                     .Select(g => g.First()).ToList();
             }
         }
@@ -567,15 +567,15 @@ namespace wooby.Database
                     exec.MainSource.DataProvider.Seek(headId);
                     exec.TempRows = group;
 
-                    var row = new List<ColumnValue>();
+                    var row = new OutputRow {RowId = headId};
                     // For each sub group, now generate one output row
                     foreach (var expr in query.OutputColumns)
                     {
                         exec.Stack.Clear();
-                        row.Add(EvaluateExpression(exec, expr, group[0], flags));
+                        row.Values.Add(EvaluateExpression(exec, expr, group[0], flags));
                         while (exec.Stack.Count > 0)
                         {
-                            row.Add(exec.PopStack());
+                            row.Values.Add(exec.PopStack());
                         }
                     }
 
@@ -591,15 +591,15 @@ namespace wooby.Database
                 {
                     var headId = temp.RowId;
                     exec.MainSource.DataProvider.Seek(headId);
-                    var r = new List<ColumnValue>();
+                    var r = new OutputRow {RowId = temp.RowId};
                     // For each sub group, now generate one output row
                     foreach (var expr in query.OutputColumns)
                     {
                         exec.Stack.Clear();
-                        r.Add(EvaluateExpression(exec, expr, temp, flags));
+                        r.Values.Add(EvaluateExpression(exec, expr, temp, flags));
                         while (exec.Stack.Count > 0)
                         {
-                            r.Add(exec.PopStack());
+                            r.Values.Add(exec.PopStack());
                         }
                     }
 
@@ -846,9 +846,9 @@ namespace wooby.Database
             ExecuteQuery(sub, subQuery);
 
             // Get first column of the last row in the target result
-            if (sub.QueryOutput.Rows.Count > 0)
+            if (sub.QueryOutput.Rows.Any())
             {
-                var result = sub.QueryOutput.Rows.Last()[0];
+                var result = sub.QueryOutput.Rows.Last().Values[0];
                 exec.Stack.Push(result);
             }
             else
@@ -1105,12 +1105,8 @@ namespace wooby.Database
             exec.ResetRowNumber();
 
             GroupRows(exec, query);
-            OrderOutputRows(exec, query);
-            // Yes, the rows must be ordered first and then the distinct is applied
-            // The reason is that information about all the rows is collected in order to do the ordering correctly
-            // and that breaks when distinct deletes some of those rows
-            // TODO: I'm sure it can be fixed some day but I won't bother for now
             DistinctRows(exec, query);
+            OrderOutputRows(exec, query);
             //PushAllRowsToOutput(exec, query);
             // Final check so we don't return an empty row when no rows were found
             CheckOutputRows(exec);
