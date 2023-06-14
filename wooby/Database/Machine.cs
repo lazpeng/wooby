@@ -36,7 +36,6 @@ namespace wooby.Database
                 new RowNum_Function(id++),
                 new RowId_Function(id++),
                 new Trunc_Function(id++),
-                new SayHello_Function(id++),
             };
 
             foreach (var v in Functions)
@@ -502,6 +501,37 @@ namespace wooby.Database
             }
         }
 
+        private void ExecuteCreate(ExecutionContext exec, CreateStatement statement)
+        {
+            // For now, just add a table with the given name to the context and create a generic data provider
+
+            var meta = new TableMeta
+            {
+                Name = statement.Name,
+                IsReal = true,
+                IsTemporary = false,
+            };
+
+            foreach (var col in statement.Columns)
+            {
+                var colmeta = new ColumnMeta
+                {
+                    Name = col.Name,
+                    Type = col.Type,
+                    Parent = meta,
+                };
+
+                Context.AddColumn(colmeta, meta);
+            }
+
+            exec.Context.AddTable(meta);
+            Tables.Add(new TableData
+            {
+                Meta = meta,
+                DataProvider = new Stub_DataProvider()
+            });
+        }
+
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
         {
             // Compile all expressions
@@ -588,13 +618,16 @@ namespace wooby.Database
             CheckOutputRows(exec);
         }
 
-        public ExecutionContext Execute(Statement command)
+        public ExecutionContext Execute(Statement statement)
         {
             var exec = new ExecutionContext(Context);
 
-            if (command is SelectStatement query)
+            if (statement is SelectStatement query)
             {
                 ExecuteQuery(exec, query);
+            } else if (statement is CreateStatement create)
+            {
+                ExecuteCreate(exec, create);
             }
 
             return exec;

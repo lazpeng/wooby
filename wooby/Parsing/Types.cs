@@ -30,6 +30,16 @@ namespace wooby.Parsing
             public Keyword KeywordValue;
             public Operator OperatorValue;
             public int InputLength;
+
+            public bool IsOperator()
+            {
+                return Kind == TokenKind.Operator;
+            }
+
+            public bool IsKeyword()
+            {
+                return Kind == TokenKind.Keyword;
+            }
         }
 
         public class ExpressionFlags
@@ -94,7 +104,13 @@ namespace wooby.Parsing
         Desc,
         Order,
         By,
-        As
+        As,
+        Create,
+        Alter,
+        Table,
+        Column,
+        Add,
+        Constraint,
     }
 
     public class Expression
@@ -363,5 +379,23 @@ namespace wooby.Parsing
         {
             return HashCode.Combine(Kind, Class, OutputColumns, MainSource, FilterConditions, OutputOrder);
         }
+    }
+
+    public class ColumnNameTypeDef
+    {
+        public string Name { get; set; }
+        public ColumnType Type { get; set; }
+    }
+
+    public class CreateStatement : Statement
+    {
+        public CreateStatement()
+        {
+            Kind = StatementKind.Definition;
+            Class = StatementClass.Create;
+        }
+
+        public string Name { get; set; }
+        public List<ColumnNameTypeDef> Columns { get; set; } = new List<ColumnNameTypeDef>();
     }
 }

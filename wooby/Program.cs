@@ -90,9 +90,27 @@ namespace wooby
                     quit = true;
                 } else
                 {
-                    var cmd = parser.ParseStatement(input, context);
-                    var result = machine.Execute(cmd);
-                    PrintCommandOutput(result);
+                    try
+                    {
+                        var cmd = parser.ParseStatement(input, context);
+                        var result = machine.Execute(cmd);
+                        if (cmd.Kind == StatementKind.Query)
+                        {
+                            PrintCommandOutput(result);
+                        }
+                        else if (cmd.Kind == StatementKind.Definition)
+                        {
+                            // TODO: Add what kind of object was really created, but for now it's only tables
+                            Console.WriteLine("Table created.");
+                        }
+                    } catch (Exception e)
+                    {
+                        var prev = Console.ForegroundColor;
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Write("Error: ");
+                        Console.ForegroundColor = prev;
+                        Console.WriteLine($"{e.Message}\n{e.StackTrace}");
+                    }
                 }
             }
         }

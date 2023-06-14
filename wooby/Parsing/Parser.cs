@@ -24,7 +24,13 @@ namespace wooby.Parsing
             { "DESC", Keyword.Desc },
             { "ORDER", Keyword.Order },
             { "BY", Keyword.By },
-            { "AS", Keyword.As }
+            { "AS", Keyword.As },
+            { "CREATE", Keyword.Create },
+            { "ALTER", Keyword.Alter },
+            { "TABLE", Keyword.Table },
+            { "COLUMN", Keyword.Column },
+            { "ADD", Keyword.Add },
+            { "CONSTRAINT", Keyword.Constraint },
         };
 
         private readonly Dictionary<string, Operator> operatorDict = new()
@@ -272,6 +278,7 @@ namespace wooby.Parsing
             return first.KeywordValue switch
             {
                 Keyword.Select => ParseSelect(input, 0, context, new SelectFlags(), null),
+                Keyword.Create => ParseCreate(input, 0, context),
                 _ => throw new NotImplementedException()
             };
         }
@@ -871,6 +878,28 @@ namespace wooby.Parsing
             {
                 ProcessExpressionNodeType(expr, context, statement, node);
             }
+        }
+
+        private ColumnType ParseColumnType(string input, int offset, out int deltaOffset)
+        {
+            int originalOffset = offset;
+
+            var token = NextToken(input, offset);
+            deltaOffset = token.InputLength;
+
+            if (token.Kind != TokenKind.Symbol)
+            {
+                return ColumnType.Null;
+            }
+
+            return token.StringValue switch
+            {
+                "TEXT" => ColumnType.String,
+                "INT" or "INTEGER" or "NUMBER" => ColumnType.Number,
+                "DATE" or "DATETIME" => ColumnType.Date,
+                "BOOL" or "BOOLEAN" => ColumnType.Boolean,
+                _ => ColumnType.Null
+            };
         }
     }
 }
