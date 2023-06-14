@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-
 using wooby.Database;
 using wooby.Parsing;
 
@@ -42,7 +41,7 @@ namespace wooby
                     {
                         if (i >= 0)
                         {
-                            content = $"{i}".PadRight(maxLen);
+                            content = $"{i + 1}".PadRight(maxLen);
                         } else content = "".PadRight(maxLen);
                     }
                     else if (i < 0)

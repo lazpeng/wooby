@@ -48,7 +48,7 @@ namespace wooby
         public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
         public List<Function> Functions { get; private set; } = new List<Function>();
 
-        public void AddColumn(ColumnMeta column, TableMeta target)
+        public static void AddColumn(ColumnMeta column, TableMeta target)
         {
             column.Parent = target;
 

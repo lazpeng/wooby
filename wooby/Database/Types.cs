@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using wooby.Parsing;
 
 namespace wooby.Database
 {
@@ -34,6 +35,11 @@ namespace wooby.Database
                 ValueKind.Date => Date.ToString("u"),
                 _ => ""
             };
+        }
+
+        public static ColumnValue Null()
+        {
+            return new ColumnValue { Kind = ValueKind.Null };
         }
     }
 
@@ -97,12 +103,60 @@ namespace wooby.Database
 
     public interface ITableDataProvider
     {
-        void Reset();
-        bool SeekNext();
-        ColumnValue GetColumn(int index);
-        long RowId();
-        bool Seek(long RowId);
-        List<ColumnValue> WholeRow();
+        IEnumerable<ColumnValue> Seek(long RowId);
+        IEnumerable<ColumnValue> SeekNext(ref long RowId);
+    }
+
+    public class TableCursor
+    {
+        private readonly ITableDataProvider Source;
+        private readonly int NumCols;
+        private long RowId = -1;
+        private IEnumerable<ColumnValue> CurrentValues;
+
+        public TableCursor(ITableDataProvider Source, int NumCols)
+        {
+            this.Source = Source;
+            this.NumCols = NumCols;
+        }
+
+        public bool Seek(long Id)
+        {
+            var result = Source.Seek(Id);
+            if (result != null)
+            {
+                RowId = Id;
+                CurrentValues = result;
+            }
+            return result != null;
+        }
+
+        public bool SeekNext()
+        {
+            long id = RowId;
+            var result = Source.SeekNext(ref id);
+            if (result != null)
+            {
+                RowId = id;
+                CurrentValues = result;
+            }
+            return result != null;
+        }
+
+        public long CurrentRowId()
+        {
+            return RowId;
+        }
+
+        public ColumnValue Read(int Index)
+        {
+            if (Index >= NumCols)
+            {
+                throw new IndexOutOfRangeException("Index for column is out of range");
+            }
+
+            return CurrentValues.ElementAt(Index);
+        }
     }
 
     public enum OpCode : int
@@ -130,6 +184,7 @@ namespace wooby.Database
         AuxEqualNumber,
         PushStackTopToOutput,
         PushStackTopToOrdering,
+        ExecuteSubQuery,
     }
 
     public enum PushResultKind
@@ -147,6 +202,8 @@ namespace wooby.Database
         public long Arg3 { get; set; }
         public string Str1 { get; set; }
         public double Num1 { get; set; }
+        // LOL
+        public SelectStatement SubQuery { get; set; }
     }
 
     public class TableData
@@ -155,15 +212,22 @@ namespace wooby.Database
         public ITableDataProvider DataProvider { get; set; }
     }
 
+    public class ExecutionDataSource
+    {
+        public TableMeta Meta { get; set; }
+        public TableCursor DataProvider { get; set; }
+    }
+
     public class ExecutionContext
     {
         public Output QueryOutput { get; } = new Output();
         public int RowsAffected { get; set; } = 0;
         public Context Context { get; }
-        public TableData MainSource { get; set; }
+        public ExecutionDataSource MainSource { get; set; }
         public Stack<long> Checkpoints { get; set; } = new Stack<long>();
         public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
         public List<RowOrderData> OrderingResults { get; set; } = new List<RowOrderData>();
+        public ExecutionContext Previous { get; set; } = null;
 
         public ExecutionContext(Context ctx)
         {

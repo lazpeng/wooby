@@ -8,10 +8,36 @@ namespace wooby.Parsing
 {
     public partial class Parser
     {
-        public SelectStatement ParseSelect(string input, int offset, Context context)
+        private static void ResolveSelectReferences(SelectStatement statement, Context context)
+        {
+            foreach (var expr in statement.OutputColumns)
+            {
+                if (expr.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference || n.Kind == Expression.NodeKind.Function || n.Kind == Expression.NodeKind.SubSelect))
+                {
+                    ResolveUnresolvedReferences(expr, context, statement);
+                }
+            }
+
+            if (statement.Parent != null)
+            {
+                ResolveUnresolvedReferences(statement.FilterConditions, context, statement);
+
+                foreach (var order in statement.OutputOrder)
+                {
+                    ResolveUnresolvedReferences(order.OrderExpression, context, statement);
+                }
+            }
+        }
+
+        public SelectStatement ParseSelect(string input, int offset, Context context, SelectFlags flags, SelectStatement parent)
         {
             int originalOffset = offset;
-            var command = new SelectStatement();
+            var statement = new SelectStatement();
+            if (parent != null)
+            {
+                statement.Parent = parent;
+            }
+            statement.UsedFlags = flags;
 
             Token next = NextToken(input, offset);
             if (next.Kind != TokenKind.Keyword || next.KeywordValue != Keyword.Select)
@@ -20,7 +46,7 @@ namespace wooby.Parsing
             }
             offset += next.InputLength;
 
-            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true };
+            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true, SingleValueSubSelectAllowed = true };
 
             do
             {
@@ -39,31 +65,29 @@ namespace wooby.Parsing
                     offset += next.InputLength;
                 }
 
-                var expr = ParseExpression(input, offset, context, exprFlags, false, false);
+                var expr = ParseExpression(input, offset, context, statement, exprFlags, false, false);
 
-                if (command.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
+                if (statement.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
                 {
                     throw new Exception("Unexpected token *");
                 }
 
-                command.OutputColumns.Add(expr);
+                statement.OutputColumns.Add(expr);
                 offset += expr.FullText.Length;
 
                 // Disallow general wildflags after first column
                 exprFlags.GeneralWildcardAllowed = false;
             } while (true);
 
-            var source = ParseReference(input, offset, context, new ReferenceFlags() { TableOnly = true });
-            CurrentSources.Add(source);
-
-            var pendingReferences = command.OutputColumns.Where(e => e.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference || n.Kind == Expression.NodeKind.Function));
-            foreach (var expr in pendingReferences)
-            {
-                ResolveUnresolvedReferences(expr, context);
-            }
-
-            command.MainSource = source;
+            var source = ParseReference(input, offset, context, statement, new ReferenceFlags() { TableOnly = true });
+            statement.MainSource = source;
             offset += source.InputLength;
+
+            // If we have a parent, they're going to resolve our references for us
+            if (parent == null)
+            {
+                ResolveSelectReferences(statement, context);
+            }
 
             // Prepare flags for WHERE and ORDER BY expressions
             exprFlags.GeneralWildcardAllowed = false;
@@ -79,13 +103,13 @@ namespace wooby.Parsing
                 {
                     if (next.KeywordValue == Keyword.Where)
                     {
-                        if (command.FilterConditions != null)
+                        if (statement.FilterConditions != null)
                         {
                             throw new Exception("Unexpected WHERE when filter has already been set");
                         }
 
-                        command.FilterConditions = ParseExpression(input, offset, context, exprFlags, true, false);
-                        offset += command.FilterConditions.FullText.Length;
+                        statement.FilterConditions = ParseExpression(input, offset, context, statement, exprFlags, parent == null, false);
+                        offset += statement.FilterConditions.FullText.Length;
                     }
                     else if (next.KeywordValue == Keyword.Order)
                     {
@@ -112,6 +136,16 @@ namespace wooby.Parsing
                                 {
                                     throw new Exception("Order by clause cannot start with a comma");
                                 }
+                            } else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+                            {
+                                if (flags.StopOnUnmatchedParenthesis)
+                                {
+                                    offset += next.InputLength;
+                                    break;
+                                } else
+                                {
+                                    throw new Exception("Missing left parenthesis");
+                                }
                             } else if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
                             {
                                 break;
@@ -121,7 +155,7 @@ namespace wooby.Parsing
 
                             var ordering = new Ordering
                             {
-                                OrderExpression = ParseExpression(input, offset, context, exprFlags, true, false)
+                                OrderExpression = ParseExpression(input, offset, context, statement, exprFlags, parent == null, false)
                             };
                             offset += ordering.OrderExpression.FullText.Length;
 
@@ -132,8 +166,20 @@ namespace wooby.Parsing
                                 offset += next.InputLength;
                             }
 
-                            command.OutputOrder.Add(ordering);
+                            statement.OutputOrder.Add(ordering);
                         }
+                    }
+                }
+                else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+                {
+                    if (!flags.StopOnUnmatchedParenthesis)
+                    {
+                        offset += next.InputLength;
+                        break;
+                    }
+                    else
+                    {
+                        throw new Exception("Missing left parenthesis");
                     }
                 }
                 else if (next.Kind != TokenKind.None)
@@ -143,9 +189,9 @@ namespace wooby.Parsing
             } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
 
             offset = Math.Min(input.Length, offset);
-            command.OriginalText = input[originalOffset..offset];
+            statement.OriginalText = input[originalOffset..offset];
 
-            return command;
+            return statement;
         }
     }
 }

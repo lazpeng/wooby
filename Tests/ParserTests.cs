@@ -67,14 +67,13 @@ namespace Tests
         {
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "table" };
-            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
             var input = "table.a";
 
             var parser = new Parser();
-            parser.AddSource(new ColumnReference() { Table = "table" });
-            var reference = parser.ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { ResolveReferences = true });
+            var reference = parser.ParseReference(input, 0, ctx, new SelectStatement(), new Parser.ReferenceFlags() { ResolveReferences = true });
             var expected = new ColumnReference() { Column = "a", Table = "table", InputLength = input.Length };
 
             Assert.AreEqual(reference, expected);
@@ -89,8 +88,7 @@ namespace Tests
             var input = "table";
 
             var parser = new Parser();
-            parser.AddSource(new ColumnReference() { Table = "table" });
-            var reference = parser.ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { TableOnly = true });
+            var reference = parser.ParseReference(input, 0, ctx, new SelectStatement(), new Parser.ReferenceFlags() { TableOnly = true });
             var expected = new ColumnReference() { Table = "table" };
 
             Assert.AreEqual(reference, expected);
@@ -142,7 +140,7 @@ namespace Tests
         {
             var input = "2+2";
 
-            var expr = new Parser().ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags(), true, false);
+            var expr = new Parser().ParseExpression(input, 0, new Context(), new SelectStatement(), new Parser.ExpressionFlags(), true, false);
 
             var expected = new Expression()
             {
@@ -258,8 +256,8 @@ namespace Tests
 
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "table" };
-            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
-            ctx.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.String }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.String }, table);
             ctx.AddTable(table);
 
             var command = new Parser().ParseStatement(input, ctx);
@@ -312,12 +310,12 @@ namespace Tests
         {
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "table" };
-            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
             var input = "NULL";
 
-            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true, false);
+            var result = new Parser().ParseExpression(input, 0, ctx, new SelectStatement(), new Parser.ExpressionFlags(), true, false);
 
             Assert.AreEqual(result.Type, Expression.ExpressionType.Unknown);
             Assert.IsTrue(result.Nodes.Count == 1);
@@ -331,12 +329,11 @@ namespace Tests
 
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "table" };
-            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
             var parser = new Parser();
-            parser.AddSource(new ColumnReference() { Table = "table" });
-            var result = parser.ParseExpression(input, 0, ctx, new Parser.ExpressionFlags() { IdentifierAllowed = true }, true, false);
+            var result = parser.ParseExpression(input, 0, ctx, new SelectStatement(), new Parser.ExpressionFlags() { IdentifierAllowed = true }, true, false);
 
             Assert.IsNotNull(result.Identifier);
             Assert.AreEqual(result.Identifier, "name");
@@ -349,12 +346,11 @@ namespace Tests
 
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "table" };
-            ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
             var parser = new Parser();
-            parser.AddSource(new ColumnReference() { Table = "table" });
-            var result = parser.ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true, false);
+            var result = parser.ParseExpression(input, 0, ctx, new SelectStatement(), new Parser.ExpressionFlags(), true, false);
 
             Assert.IsTrue(result.IsOnlyReference());
         }
@@ -366,7 +362,7 @@ namespace Tests
 
             var ctx = new Machine().Initialize();
 
-            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true, false);
+            var result = new Parser().ParseExpression(input, 0, ctx, new SelectStatement(), new Parser.ExpressionFlags(), true, false);
             var expected = new Expression()
             {
                 FullText = input,
@@ -397,11 +393,11 @@ namespace Tests
 
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "a" };
-            ctx.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.Number }, table);
-            ctx.AddColumn(new ColumnMeta() { Name = "c", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.Number }, table);
+            Context.AddColumn(new ColumnMeta() { Name = "c", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
-            var result = new Parser().ParseSelect(input, 0, ctx);
+            var result = new Parser().ParseSelect(input, 0, ctx, new Parser.SelectFlags(), null);
 
             var expected = new List<Ordering>()
             {
