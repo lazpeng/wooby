@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
-
 using wooby.Database.Persistence;
 using wooby.Database.Defaults;
 using wooby.Parsing;
@@ -11,10 +11,15 @@ namespace wooby.Database
 {
     public class Machine
     {
-        private List<Function> Functions { get; set; }
+        private List<Function> Functions { get; set; } = new();
         private List<TableData> Tables { get; set; }
-        public Context Context { get; private set; } = null;
-        private static readonly List<Operator> BooleanOperators = new List<Operator> { Operator.Equal, Operator.NotEqual, Operator.LessEqual, Operator.MoreEqual, Operator.MoreThan, Operator.LessThan };
+        public Context Context { get; private set; }
+
+        private static readonly List<Operator> BooleanOperators = new List<Operator>
+        {
+            Operator.Equal, Operator.NotEqual, Operator.LessEqual, Operator.MoreEqual, Operator.MoreThan,
+            Operator.LessThan
+        };
 
         private static bool OperatorIsBoolean(Operator op)
         {
@@ -37,23 +42,23 @@ namespace wooby.Database
 
         private void InitializeFunctions()
         {
-            long id = 0;
-
-            Functions = new List<Function>()
+            var types = new List<Type>
             {
-                new CurrentDate_Function(id++),
-                new DatabaseName_Function(id++),
-                new RowNum_Function(id++),
-                new RowId_Function(id++),
-                new Trunc_Function(id++),
-                new Count_Function(id++),
-                new Min_Function(id++),
-                new Max_Function(id++),
-                new Sum_Function(id++),
+                typeof(CurrentDate_Function),
+                typeof(DatabaseName_Function),
+                typeof(RowNum_Function),
+                typeof(RowId_Function),
+                typeof(Trunc_Function),
+                typeof(Count_Function),
+                typeof(Min_Function),
+                typeof(Max_Function),
+                typeof(Sum_Function),
             };
 
-            foreach (var func in Functions)
+            for (int id = 0; id < types.Count; id++)
             {
+                var func = Activator.CreateInstance(types[id], new object[] {id}) as Function;
+                Functions.Add(func);
                 Context.AddFunction(func);
             }
         }
@@ -78,7 +83,7 @@ namespace wooby.Database
             };
             RegisterTable(dualMeta, new Dual_DataProvider());
 
-            var loveliveMeta = new TableMeta() { Name = "lovelive", IsReal = false }
+            var loveliveMeta = new TableMeta() {Name = "lovelive", IsReal = false}
                 .AddColumn("id", ColumnType.Number)
                 .AddColumn("parent_id", ColumnType.Number)
                 .AddColumn("nome", ColumnType.String)
@@ -93,8 +98,9 @@ namespace wooby.Database
             {
                 Context.AddTable(Meta);
             }
+
             Provider.Initialize(Context, Meta);
-            Tables.Add(new TableData { Meta = Meta, DataProvider = Provider });
+            Tables.Add(new TableData {Meta = Meta, DataProvider = Provider});
         }
 
         private static void CheckOutputRows(ExecutionContext context)
@@ -151,7 +157,7 @@ namespace wooby.Database
 
             public bool Equals(ColumnValue x, ColumnValue y)
             {
-                return x.Kind == y.Kind && Equal(x, y).Boolean;
+                return x != null && y != null && x.Kind == y.Kind && Equal(x, y).Boolean;
             }
 
             public int GetHashCode([DisallowNull] ColumnValue obj)
@@ -195,13 +201,13 @@ namespace wooby.Database
                 var lnum = left.Number;
                 var rnum = right.Number;
 
-                return new ColumnValue() { Number = lnum + rnum, Kind = ValueKind.Number };
+                return new ColumnValue() {Number = lnum + rnum, Kind = ValueKind.Number};
             }
             else if (left.Kind == ValueKind.Text)
             {
                 var lstr = left.Text;
                 var rstr = right.Text;
-                return new ColumnValue() { Text = lstr + rstr, Kind = ValueKind.Text };
+                return new ColumnValue() {Text = lstr + rstr, Kind = ValueKind.Text};
             }
 
             throw new ArgumentException("Incompatible values for sum operation");
@@ -214,7 +220,7 @@ namespace wooby.Database
             if (AnyValuesNull(left, right))
             {
                 var equal = AnyValuesNull(left, left) && AnyValuesNull(right, right);
-                return new ColumnValue() { Kind = ValueKind.Boolean, Boolean = equal };
+                return new ColumnValue() {Kind = ValueKind.Boolean, Boolean = equal};
             }
 
             if (left.Kind == ValueKind.Number)
@@ -222,13 +228,13 @@ namespace wooby.Database
                 var lnum = left.Number;
                 var rnum = right.Number;
 
-                return new ColumnValue() { Boolean = lnum == rnum, Kind = ValueKind.Boolean };
+                return new ColumnValue() {Boolean = Math.Abs(lnum - rnum) < 0.001, Kind = ValueKind.Boolean};
             }
             else if (left.Kind == ValueKind.Text)
             {
                 var lstr = left.Text;
                 var rstr = right.Text;
-                return new ColumnValue() { Boolean = lstr == rstr, Kind = ValueKind.Boolean };
+                return new ColumnValue() {Boolean = lstr == rstr, Kind = ValueKind.Boolean};
             }
 
             throw new ArgumentException("Incompatible values for equals operation");
@@ -267,10 +273,10 @@ namespace wooby.Database
             AssertValuesNotBoolean(left, right);
             if (AnyValuesNull(left, right))
             {
-                return new ColumnValue { Kind = ValueKind.Boolean, Boolean = false };
+                return new ColumnValue {Kind = ValueKind.Boolean, Boolean = false};
             }
 
-            var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
+            var result = new ColumnValue() {Boolean = false, Kind = ValueKind.Boolean};
 
             if (left.Kind == ValueKind.Number)
             {
@@ -297,10 +303,10 @@ namespace wooby.Database
             AssertValuesNotBoolean(left, right);
             if (AnyValuesNull(left, right))
             {
-                return new ColumnValue { Kind = ValueKind.Boolean, Boolean = false };
+                return new ColumnValue {Kind = ValueKind.Boolean, Boolean = false};
             }
 
-            var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
+            var result = new ColumnValue() {Boolean = false, Kind = ValueKind.Boolean};
 
             if (left.Kind == ValueKind.Number)
             {
@@ -313,7 +319,8 @@ namespace wooby.Database
             {
                 if (isOrdering)
                 {
-                    result.Boolean = string.Compare(left.Text, right.Text) > 0;
+                    result.Boolean = string.Compare(left.Text, right.Text, CultureInfo.InvariantCulture,
+                        CompareOptions.None) > 0;
                 }
                 else
                 {
@@ -353,7 +360,7 @@ namespace wooby.Database
                 var lnum = left.Number;
                 var rnum = right.Number;
 
-                return new ColumnValue() { Number = lnum / rnum, Kind = ValueKind.Number };
+                return new ColumnValue() {Number = lnum / rnum, Kind = ValueKind.Number};
             }
             else if (left.Kind == ValueKind.Text)
             {
@@ -379,7 +386,7 @@ namespace wooby.Database
                 var lnum = left.Number;
                 var rnum = right.Number;
 
-                return new ColumnValue() { Number = lnum % rnum, Kind = ValueKind.Number };
+                return new ColumnValue() {Number = lnum % rnum, Kind = ValueKind.Number};
             }
             else if (left.Kind == ValueKind.Text)
             {
@@ -405,7 +412,7 @@ namespace wooby.Database
                 var lnum = left.Number;
                 var rnum = right.Number;
 
-                return new ColumnValue() { Number = lnum * rnum, Kind = ValueKind.Number };
+                return new ColumnValue() {Number = lnum * rnum, Kind = ValueKind.Number};
             }
             else if (left.Kind == ValueKind.Text)
             {
@@ -431,7 +438,7 @@ namespace wooby.Database
                 var lnum = left.Number;
                 var rnum = right.Number;
 
-                return new ColumnValue() { Number = lnum - rnum, Kind = ValueKind.Number };
+                return new ColumnValue() {Number = lnum - rnum, Kind = ValueKind.Number};
             }
             else if (left.Kind == ValueKind.Text)
             {
@@ -441,7 +448,7 @@ namespace wooby.Database
             throw new ArgumentException("Invalid arguments provided for subtraction");
         }
 
-        private static void PrepareQueryOutput(ExecutionContext exec, SelectStatement query, Expression expr)
+        private static void PrepareQueryOutput(ExecutionContext exec, Expression expr)
         {
             var id = expr.Identifier;
             if (string.IsNullOrEmpty(id))
@@ -449,7 +456,7 @@ namespace wooby.Database
                 id = expr.FullText;
             }
 
-            exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = id, Visible = true });
+            exec.QueryOutput.Definition.Add(new OutputColumnMeta() {OutputName = id, Visible = true});
         }
 
         private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query, List<int> indexes, int colIndex)
@@ -519,14 +526,15 @@ namespace wooby.Database
             }
         }
 
-        private List<List<TempRow>> GroupRowsRecursive(ExecutionContext exec, List<TempRow> current, int level, SelectStatement query)
+        private List<List<TempRow>> GroupRowsRecursive(ExecutionContext exec, List<TempRow> current, int level,
+            SelectStatement query)
         {
-            var value = query.Grouping[level].Join();
             var groups = new Dictionary<string, List<TempRow>>();
+            var flags = new EvaluationFlags() {Origin = ExpressionOrigin.Grouping, Phase = QueryEvaluationPhase.Final};
 
             foreach (var row in current)
             {
-                var correspondingResult = row.EvaluatedReferences[value];
+                var correspondingResult = EvaluateExpression(exec, query.Grouping[level], row, flags);
                 var distinct = correspondingResult.PrettyPrint();
                 if (groups.TryGetValue(distinct, out var sub))
                 {
@@ -534,7 +542,7 @@ namespace wooby.Database
                 }
                 else
                 {
-                    groups.Add(distinct, new List<TempRow> { row });
+                    groups.Add(distinct, new List<TempRow> {row});
                 }
             }
 
@@ -552,7 +560,7 @@ namespace wooby.Database
         {
             var result = new List<TempRow>();
 
-            var flags = new EvaluationFlags { Origin = ExpressionOrigin.Ordering, Phase = QueryEvaluationPhase.Final };
+            var flags = new EvaluationFlags {Origin = ExpressionOrigin.Ordering, Phase = QueryEvaluationPhase.Final};
             // For each sub group, we get one TempRow
             foreach (var subGroup in groups)
             {
@@ -565,28 +573,41 @@ namespace wooby.Database
                 {
                     EvaluateCurrentRowReferences(exec, order.OrderExpression, subGroup[0], flags);
                 }
+
                 result.Add(subGroup[0]);
             }
 
             return result;
         }
 
+        private void DistinctRows(ExecutionContext exec, SelectStatement query)
+        {
+            // We could group the output again, but there's a concern regarding aggregate functions being executed
+            // again, and altering it so that isn't a problem is probably too much for now
+            // So the strategy is to hash each row and filter them
+
+            if (query.Distinct)
+            {
+                exec.QueryOutput.Rows = exec.QueryOutput.Rows
+                    .GroupBy(row => string.Join(',', row.Select(col => col.PrettyPrint())))
+                    .Select(g => g.First()).ToList();
+            }
+        }
+
         private void GroupRows(ExecutionContext exec, SelectStatement query)
         {
             exec.ResetRowNumber();
-            var flags = new EvaluationFlags { Origin = ExpressionOrigin.OutputColumn, Phase = QueryEvaluationPhase.Final };
+            var flags = new EvaluationFlags
+                {Origin = ExpressionOrigin.OutputColumn, Phase = QueryEvaluationPhase.Final};
 
-            // Reset since we're gonna read from it again if needed
-            exec.MainSource.DataProvider.SeekFirst();
-            // For simplicity, we only allow for grouping by a column name for now
-            // TODO: Grouping by expression
-            // Should be an easy enough fix
             if (query.Grouping.Count > 0)
             {
                 var originalTempRows = exec.TempRows;
                 var groups = GroupRowsRecursive(exec, originalTempRows, 0, query);
                 foreach (var group in groups)
                 {
+                    var headId = group[0].RowId;
+                    exec.MainSource.DataProvider.Seek(headId);
                     exec.TempRows = group;
 
                     var row = new List<ColumnValue>();
@@ -603,14 +624,16 @@ namespace wooby.Database
 
                     exec.QueryOutput.Rows.Add(row);
                     exec.IncrementRowNumber();
-                    exec.MainSource.DataProvider.SeekNext();
                 }
+
                 exec.TempRows = FlattenTempRows(exec, groups, query);
             }
             else
             {
                 foreach (var temp in exec.TempRows)
                 {
+                    var headId = temp.RowId;
+                    exec.MainSource.DataProvider.Seek(headId);
                     var r = new List<ColumnValue>();
                     // For each sub group, now generate one output row
                     foreach (var expr in query.OutputColumns)
@@ -632,6 +655,7 @@ namespace wooby.Database
                         // there will only be one resulting row in the output
                         break;
                     }
+
                     exec.MainSource.DataProvider.SeekNext();
                 }
             }
@@ -665,7 +689,8 @@ namespace wooby.Database
                 throw new Exception("Could not find table");
             }
 
-            if (insert.Columns.Count != 0 && insert.Columns.Count != insert.Values.Count || (insert.Columns.Count == 0 && table.Columns.Count != insert.Values.Count))
+            if (insert.Columns.Count != 0 && insert.Columns.Count != insert.Values.Count ||
+                (insert.Columns.Count == 0 && table.Columns.Count != insert.Values.Count))
             {
                 throw new Exception("Error: Different length for Columns list as Values list");
             }
@@ -731,7 +756,7 @@ namespace wooby.Database
                 Compiler.CompileExpression(update, col.Item2, Context, updateInstructions, PushResultKind.ToOutput);
             }
 
-            exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+            exec.QueryOutput.Rows.Add(new());
             while (exec.MainSource.DataProvider.SeekNext())
             {
                 if (FilterIsTrueForCurrentRow(exec, filter))
@@ -784,18 +809,23 @@ namespace wooby.Database
         private ColumnValue ReadColumnReference(ExecutionContext exec, ColumnReference reference)
         {
             var sourceContext = GetContextForLevel(exec, reference.ParentLevel);
-            if (sourceContext.RowNumber > sourceContext.TempRows.Count - 1 || !sourceContext.TempRows[sourceContext.RowNumber].EvaluatedReferences.TryGetValue(reference.Join(), out ColumnValue value))
+            if (sourceContext.RowNumber > sourceContext.TempRows.Count - 1 || !sourceContext
+                    .TempRows[sourceContext.RowNumber].EvaluatedReferences
+                    .TryGetValue(reference.Join(), out ColumnValue value))
             {
                 var meta = exec.Context.FindColumn(reference);
                 value = sourceContext.MainSource.DataProvider.Read(meta.Id);
             }
+
             return value;
         }
 
-        private ColumnValue EvaluateFunctionCall(ExecutionContext exec, FunctionCall call, TempRow temp, EvaluationFlags flags)
+        private ColumnValue EvaluateFunctionCall(ExecutionContext exec, FunctionCall call, TempRow temp,
+            EvaluationFlags flags)
         {
             var validAggregate = flags.Phase == QueryEvaluationPhase.Final &&
-                (flags.Origin == ExpressionOrigin.Ordering || flags.Origin == ExpressionOrigin.OutputColumn);
+                                 (flags.Origin == ExpressionOrigin.Ordering ||
+                                  flags.Origin == ExpressionOrigin.OutputColumn);
             if (call.CalledVariant.IsAggregate && !validAggregate)
             {
                 throw new Exception("Illegal use of aggregate function here");
@@ -806,7 +836,8 @@ namespace wooby.Database
             {
                 // Instead, we pass an identifier for each expression
                 arguments.AddRange(
-                    call.Arguments.Select(a => new ColumnValue {Kind = ValueKind.Text, Text = FormatTempRowReferenceAggFunc(call, a)}));
+                    call.Arguments.Select(a => new ColumnValue
+                        {Kind = ValueKind.Text, Text = FormatTempRowReferenceAggFunc(call, a)}));
             }
             else
             {
@@ -876,7 +907,7 @@ namespace wooby.Database
             }
             else
             {
-                exec.Stack.Push(new ColumnValue { Kind = ValueKind.Null });
+                exec.Stack.Push(new ColumnValue {Kind = ValueKind.Null});
             }
         }
 
@@ -885,22 +916,25 @@ namespace wooby.Database
             switch (node.Kind)
             {
                 case Expression.NodeKind.Number:
-                    exec.Stack.Push(new ColumnValue { Kind = ValueKind.Number, Number = node.NumberValue });
+                    exec.Stack.Push(new ColumnValue {Kind = ValueKind.Number, Number = node.NumberValue});
                     break;
                 case Expression.NodeKind.String:
-                    exec.Stack.Push(new ColumnValue { Kind = ValueKind.Text, Text = node.StringValue });
+                    exec.Stack.Push(new ColumnValue {Kind = ValueKind.Text, Text = node.StringValue});
                     break;
                 case Expression.NodeKind.Reference:
-                    if (tempRow == null || !tempRow.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out ColumnValue value))
+                    if (tempRow == null ||
+                        !tempRow.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out ColumnValue value))
                     {
                         value = ReadColumnReference(exec, node.ReferenceValue);
                     }
+
                     exec.Stack.Push(value);
                     break;
             }
         }
 
-        private int EvaluateSubExpression(int offset, ExecutionContext exec, Expression expr, TempRow tempRow, EvaluationFlags flags)
+        private int EvaluateSubExpression(int offset, ExecutionContext exec, Expression expr, TempRow tempRow,
+            EvaluationFlags flags)
         {
             var opStack = new Stack<Operator>();
             var lastWasPrecedence = false;
@@ -915,20 +949,26 @@ namespace wooby.Database
                     if (node.Kind == Expression.NodeKind.Function)
                     {
                         var call = node.FunctionCall;
-                        if (tempRow == null || !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                        if (tempRow == null ||
+                            !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
                         {
                             if (call.CalledVariant.IsAggregate)
                             {
-                                if (flags.Origin == ExpressionOrigin.Grouping || flags.Origin == ExpressionOrigin.Filter)
+                                if (flags.Origin == ExpressionOrigin.Grouping ||
+                                    flags.Origin == ExpressionOrigin.Filter)
                                 {
                                     throw new Exception("Invalid use of aggregate function");
-                                } else if (flags.Phase != QueryEvaluationPhase.Final)
+                                }
+                                else if (flags.Phase != QueryEvaluationPhase.Final)
                                 {
-                                    throw new Exception("Internal error: Tried to evaluate aggregate function in caching phase");
+                                    throw new Exception(
+                                        "Internal error: Tried to evaluate aggregate function in caching phase");
                                 }
                             }
+
                             value = EvaluateFunctionCall(exec, call, tempRow, flags);
                         }
+
                         exec.Stack.Push(value);
                     }
                     else if (node.Kind == Expression.NodeKind.SubSelect)
@@ -939,6 +979,7 @@ namespace wooby.Database
                     {
                         PushNodeColumnValueToStack(exec, node, tempRow);
                     }
+
                     PerformOperationOnStack(exec, opStack.Pop());
                     lastWasPrecedence = false;
                 }
@@ -970,20 +1011,26 @@ namespace wooby.Database
                         case Operator.Remainder:
                             lastWasPrecedence = true;
                             break;
-                        default:
-                            break;
                     }
                 }
                 else
                 {
                     if (node.Kind == Expression.NodeKind.Function)
                     {
-                        var call = node.FunctionCall;
-                        if (!tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                        if (tempRow != null)
                         {
-                            value = EvaluateFunctionCall(exec, call, tempRow, flags);
+                            var call = node.FunctionCall;
+                            if (!tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                            {
+                                value = EvaluateFunctionCall(exec, call, tempRow, flags);
+                            }
+
+                            exec.Stack.Push(value);
                         }
-                        exec.Stack.Push(value);
+                        else
+                        {
+                            throw new Exception("EvaluateSubExpression: TempRow is Null");
+                        }
                     }
                     else if (node.Kind == Expression.NodeKind.SubSelect)
                     {
@@ -1004,7 +1051,8 @@ namespace wooby.Database
             return i;
         }
 
-        private ColumnValue EvaluateExpression(ExecutionContext exec, Expression expr, TempRow temp, EvaluationFlags flags)
+        private ColumnValue EvaluateExpression(ExecutionContext exec, Expression expr, TempRow temp,
+            EvaluationFlags flags)
         {
             EvaluateSubExpression(0, exec, expr, temp, flags);
             return exec.PopStack();
@@ -1023,7 +1071,8 @@ namespace wooby.Database
             return $"_{call.CalledVariant.Identifier}_{param.FullText}";
         }
 
-        private void EvaluateCurrentRowReferences(ExecutionContext exec, Expression expr, TempRow temp, EvaluationFlags flags)
+        private void EvaluateCurrentRowReferences(ExecutionContext exec, Expression expr, TempRow temp,
+            EvaluationFlags flags)
         {
             foreach (var node in expr.Nodes)
             {
@@ -1043,7 +1092,8 @@ namespace wooby.Database
                     {
                         foreach (var param in call.Arguments)
                         {
-                            temp.EvaluatedReferences.Add(FormatTempRowReferenceAggFunc(call, param), EvaluateExpression(exec, param, temp, flags));
+                            temp.EvaluatedReferences.Add(FormatTempRowReferenceAggFunc(call, param),
+                                EvaluateExpression(exec, param, temp, flags));
                         }
                     }
                     else
@@ -1061,7 +1111,7 @@ namespace wooby.Database
 
             foreach (var output in query.OutputColumns)
             {
-                PrepareQueryOutput(exec, query, output);
+                PrepareQueryOutput(exec, output);
             }
 
             // Gather required info for all rows that match the filter
@@ -1069,7 +1119,8 @@ namespace wooby.Database
             {
                 if (query.FilterConditions != null)
                 {
-                    var filter = EvaluateExpression(exec, query.FilterConditions, null, new EvaluationFlags { Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final });
+                    var filter = EvaluateExpression(exec, query.FilterConditions, null,
+                        new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final});
                     if (filter.Kind != ValueKind.Boolean)
                     {
                         throw new Exception("Expected boolean result for WHERE clause expression");
@@ -1081,7 +1132,7 @@ namespace wooby.Database
                     }
                 }
 
-                var flags = new EvaluationFlags { Phase = QueryEvaluationPhase.Caching };
+                var flags = new EvaluationFlags {Phase = QueryEvaluationPhase.Caching};
                 // Row passed on filter
                 var tempRow = exec.CreateTempRow();
                 flags.Origin = ExpressionOrigin.OutputColumn;
@@ -1098,16 +1149,22 @@ namespace wooby.Database
 
                 foreach (var grouping in query.Grouping)
                 {
-                    EvaluateSingleReference(exec, tempRow, grouping);
+                    EvaluateCurrentRowReferences(exec, grouping, tempRow, flags);
                 }
 
                 exec.TempRows.Add(tempRow);
                 exec.IncrementRowNumber();
             }
+
             exec.ResetRowNumber();
 
             GroupRows(exec, query);
             OrderOutputRows(exec, query);
+            // Yes, the rows must be ordered first and then the distinct is applied
+            // The reason is that information about all the rows is collected in order to do the ordering correctly
+            // and that breaks when distinct deletes some of those rows
+            // TODO: I'm sure it can be fixed some day but I won't bother for now
+            DistinctRows(exec, query);
             //PushAllRowsToOutput(exec, query);
             // Final check so we don't return an empty row when no rows were found
             CheckOutputRows(exec);
@@ -1121,7 +1178,7 @@ namespace wooby.Database
             foreach (var output in query.OutputColumns)
             {
                 Compiler.CompileExpression(query, output, Context, outputExpressions, PushResultKind.ToOutput);
-                PrepareQueryOutput(exec, query, output);
+                PrepareQueryOutput(exec, output);
             }
 
             var filter = new List<Instruction>();
@@ -1139,7 +1196,7 @@ namespace wooby.Database
             var grouping = new List<Instruction>();
             foreach (var group in query.Grouping)
             {
-                Compiler.CompileExpression(query, new Expression { Nodes = { new Expression.Node { Kind = Expression.NodeKind.Reference, ReferenceValue = group } } }, Context, grouping, PushResultKind.ToGrouping);
+                Compiler.CompileExpression(query, group, Context, grouping, PushResultKind.ToGrouping);
             }
 
             SetupMainSource(exec, query.MainSource);
@@ -1153,10 +1210,10 @@ namespace wooby.Database
                 {
                     if (FilterIsTrueForCurrentRow(exec, filter))
                     {
-                        exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                        exec.QueryOutput.Rows.Add(new());
                         filteredRows.Add(exec.MainSource.DataProvider.CurrentRowId());
                     }
-                };
+                }
 
                 exec.QueryOutput.Rows.Clear();
             }
@@ -1183,13 +1240,13 @@ namespace wooby.Database
 
                 var rowIndex = exec.QueryOutput.Rows.Count;
                 // First get the actual outputs from the query
-                exec.QueryOutput.Rows.Add(new List<ColumnValue>());
+                exec.QueryOutput.Rows.Add(new());
                 Execute(outputExpressions, exec);
                 // Fetch the required results for the ordering
-                exec.OrderingResults.Add(new RowMetaData() { RowIndex = rowIndex });
+                exec.OrderingResults.Add(new RowMetaData() {RowIndex = rowIndex});
                 Execute(ordering, exec);
                 // Fetch results to grouping
-                exec.GroupingResults.Add(new RowMetaData() { RowIndex = rowIndex });
+                exec.GroupingResults.Add(new RowMetaData() {RowIndex = rowIndex});
                 Execute(grouping, exec);
             }
 
@@ -1279,7 +1336,8 @@ namespace wooby.Database
 
             if (root.Previous == null)
             {
-                throw new IndexOutOfRangeException("Given level surpasses context availability in the current execution");
+                throw new IndexOutOfRangeException(
+                    "Given level surpasses context availability in the current execution");
             }
 
             return GetContextForLevel(root.Previous, level - 1);
@@ -1290,27 +1348,30 @@ namespace wooby.Database
             for (int i = 0; i < instructions.Count; ++i)
             {
                 var instruction = instructions[i];
-                ExecutionContext sourceContext = null;
+                ExecutionContext sourceContext;
 
                 switch (instruction.OpCode)
                 {
                     case OpCode.PushColumnToOutput:
-                        sourceContext = GetContextForLevel(exec, (int)instruction.Arg3);
-                        PushToOutput(exec, sourceContext.MainSource.DataProvider.Read((int)instruction.Arg2));
+                        sourceContext = GetContextForLevel(exec, (int) instruction.Arg3);
+                        PushToOutput(exec, sourceContext.MainSource.DataProvider.Read((int) instruction.Arg2));
                         break;
                     case OpCode.CallFunction:
-                        var numArgs = (int)instruction.Arg2;
+                        var numArgs = (int) instruction.Arg2;
                         if (numArgs > exec.Stack.Count)
                         {
-                            throw new InvalidOperationException("Expected arguments for function call do not match the stack contents");
+                            throw new InvalidOperationException(
+                                "Expected arguments for function call do not match the stack contents");
                         }
-                        exec.Stack.Push(Functions.Find(v => v.Id == instruction.Arg1).WhenCalled(exec, PopFunctionArguments(exec, numArgs), ""));
+
+                        exec.Stack.Push(Functions.Find(v => v.Id == instruction.Arg1)
+                            .WhenCalled(exec, PopFunctionArguments(exec, numArgs), ""));
                         break;
                     case OpCode.PushNumber:
-                        exec.Stack.Push(new ColumnValue() { Kind = ValueKind.Number, Number = instruction.Num1 });
+                        exec.Stack.Push(new ColumnValue() {Kind = ValueKind.Number, Number = instruction.Num1});
                         break;
                     case OpCode.PushString:
-                        exec.Stack.Push(new ColumnValue() { Kind = ValueKind.Text, Text = instruction.Str1 });
+                        exec.Stack.Push(new ColumnValue() {Kind = ValueKind.Text, Text = instruction.Str1});
                         break;
                     case OpCode.Sum:
                         exec.Stack.Push(Sum(exec));
@@ -1355,15 +1416,15 @@ namespace wooby.Database
                         PushToOrdering(exec, exec.Stack.Pop());
                         break;
                     case OpCode.PushColumn:
-                        sourceContext = GetContextForLevel(exec, (int)instruction.Arg3);
-                        exec.Stack.Push(sourceContext.MainSource.DataProvider.Read((int)instruction.Arg2));
+                        sourceContext = GetContextForLevel(exec, (int) instruction.Arg3);
+                        exec.Stack.Push(sourceContext.MainSource.DataProvider.Read((int) instruction.Arg2));
                         break;
                     case OpCode.ExecuteSubQuery:
                         var sub = new ExecutionContext(Context)
                         {
                             Previous = exec
                         };
-                        ExecuteQuery(sub, instruction.SubQuery);
+                        OldExecuteQuery(sub, instruction.SubQuery);
 
                         // Get first column of the last row in the target result
                         if (sub.QueryOutput.Rows.Count > 0)
@@ -1373,8 +1434,9 @@ namespace wooby.Database
                         }
                         else
                         {
-                            exec.Stack.Push(new ColumnValue { Kind = ValueKind.Null });
+                            exec.Stack.Push(new ColumnValue {Kind = ValueKind.Null});
                         }
+
                         break;
                     default:
                         throw new Exception("Unrecognized opcode");

@@ -9,7 +9,7 @@ public class FunctionAccepts
     public string Identifier { get; set; }
     public ColumnType ResultType { get; set; }
     public IReadOnlyList<ColumnType> Parameters { get; set; }
-    public bool IsAggregate { get; set; } = false;
+    public bool IsAggregate { get; set; }
 }
 
 class CurrentDate_Function : Function
@@ -24,7 +24,7 @@ class CurrentDate_Function : Function
         }
     };
 
-    public CurrentDate_Function(long Id) : base(Id)
+    public CurrentDate_Function(int Id) : base(Id)
     {
         Name = "CURRENT_DATE";
     }
@@ -47,7 +47,7 @@ class DatabaseName_Function : Function
         }
     };
 
-    public DatabaseName_Function(long Id) : base(Id)
+    public DatabaseName_Function(int Id) : base(Id)
     {
         Name = "DBNAME";
     }
@@ -70,7 +70,7 @@ class RowNum_Function : Function
         }
     };
 
-    public RowNum_Function(long Id) : base(Id)
+    public RowNum_Function(int Id) : base(Id)
     {
         Name = "ROWNUM";
     }
@@ -93,7 +93,7 @@ class RowId_Function : Function
         }
     };
 
-    public RowId_Function(long Id) : base(Id)
+    public RowId_Function(int Id) : base(Id)
     {
         Name = "ROWID";
     }
@@ -116,7 +116,7 @@ class Trunc_Function : Function
         }
     };
 
-    public Trunc_Function(long Id) : base(Id)
+    public Trunc_Function(int Id) : base(Id)
     {
         Name = "TRUNC";
     }
@@ -142,7 +142,7 @@ class Count_Function : Function
         }
     };
 
-    public Count_Function(long Id) : base(Id)
+    public Count_Function(int Id) : base(Id)
     {
         Name = "COUNT";
     }
@@ -175,7 +175,7 @@ class Min_Function : Function
         }
     };
     
-    public Min_Function(long Id) : base(Id)
+    public Min_Function(int Id) : base(Id)
     {
         Name = "MIN";
     }
@@ -216,7 +216,7 @@ class Max_Function : Function
         }
     };
     
-    public Max_Function(long Id) : base(Id)
+    public Max_Function(int Id) : base(Id)
     {
         Name = "MAX";
     }
@@ -250,7 +250,7 @@ class Sum_Function : Function
         }
     };
 
-    public Sum_Function(long Id) : base(Id)
+    public Sum_Function(int Id) : base(Id)
     {
         Name = "SUM";
     }

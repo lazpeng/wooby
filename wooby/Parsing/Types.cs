@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using wooby.Database;
 using wooby.Database.Defaults;
 using static wooby.Parsing.Parser;
@@ -31,7 +30,8 @@ namespace wooby.Parsing
             public double NumberValue;
             public Keyword KeywordValue;
             public Operator OperatorValue;
-            public int InputLength;
+            public int InputLength { get; set; }
+            public string FullText { get; set; }
 
             public bool IsOperator()
             {
@@ -128,6 +128,12 @@ namespace wooby.Parsing
         Column,
         Add,
         Constraint,
+        Distinct,
+        Left,
+        Right,
+        Inner,
+        Join,
+        On,
     }
 
     public class Expression
@@ -198,7 +204,8 @@ namespace wooby.Parsing
                 ColumnType.Number => ExpressionType.Number,
                 ColumnType.String => ExpressionType.String,
                 ColumnType.Date => ExpressionType.Date,
-                _ => throw new NotImplementedException()
+                ColumnType.Null => ExpressionType.Null,
+                _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
             };
         }
 
@@ -206,8 +213,8 @@ namespace wooby.Parsing
         public string Identifier { get; set; }
         public List<Node> Nodes { get; set; } = new List<Node>();
         public ExpressionType Type { get; set; } = ExpressionType.Unknown;
-        public bool IsBoolean { get; set; } = false;
-        public bool HasAggregateFunction { get; set; } = false;
+        public bool IsBoolean { get; set; }
+        public bool HasAggregateFunction { get; set; }
 
         public static Expression WithSingleNode(Node node, ExpressionType Type, string FullText)
         {
@@ -231,13 +238,13 @@ namespace wooby.Parsing
                 (p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft ||
                                                   p.OperatorValue == Operator.ParenthesisRight)) ||
                 p.Kind == NodeKind.Reference);
-            return nodes.Any() && nodes.First().IsWildcard();
+            var first = nodes.FirstOrDefault();
+            return first != null && first.IsWildcard();
         }
 
         public static bool IsTokenInvalidForExpressionStart(Token token)
         {
-            return new TokenKind[]
-                {TokenKind.Keyword, TokenKind.Dot, TokenKind.SemiColon, TokenKind.Comma}.Contains(token.Kind);
+            return new[] {TokenKind.Keyword, TokenKind.Dot, TokenKind.SemiColon, TokenKind.Comma}.Contains(token.Kind);
         }
 
         public bool IsOnlyReference()
@@ -254,8 +261,7 @@ namespace wooby.Parsing
         {
             if (obj is Expression expression)
             {
-                return Identifier == expression.Identifier &&
-                       Nodes.SequenceEqual(expression.Nodes) &&
+                return Nodes.SequenceEqual(expression.Nodes) &&
                        Type == expression.Type &&
                        IsBoolean == expression.IsBoolean;
             }
@@ -273,7 +279,7 @@ namespace wooby.Parsing
         public Function Meta { get; set; }
         public FunctionAccepts CalledVariant { get; set; }
         public List<Expression> Arguments { get; set; }
-        private string _fullText = null;
+        private string _fullText = string.Empty;
 
         // Get a value kind of like "Function(a, 2+2, 123, COLUMN)" from this function call
         // for caching purposes
@@ -322,9 +328,8 @@ namespace wooby.Parsing
         public string Table { get; set; } = "";
         public string Column { get; set; } = "";
         public string Identifier { get; set; } = "";
-        public string TableIdentifier { get; set; } = "";
         public int InputLength { get; set; }
-        public int ParentLevel { get; set; } = 0;
+        public int ParentLevel { get; set; }
 
         public override bool Equals(object obj)
         {
@@ -374,7 +379,7 @@ namespace wooby.Parsing
         public string OriginalText { get; set; }
         public ColumnReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
-        public Statement Parent { get; set; } = null;
+        public Statement Parent { get; set; }
         public StatementFlags UsedFlags { get; set; } = new StatementFlags();
 
         public ColumnReference TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
@@ -383,10 +388,9 @@ namespace wooby.Parsing
                 reference.Table == "")
             {
                 var col = context.FindColumn(new ColumnReference {Table = MainSource.Table, Column = reference.Column});
-                if (col != null)
+                if (col != null || reference.Column == "*")
                 {
                     reference.Table = MainSource.Table;
-                    reference.TableIdentifier = MainSource.Identifier;
                     reference.ParentLevel = level;
                     return reference;
                 }
@@ -415,7 +419,7 @@ namespace wooby.Parsing
         {
             if (obj is Ordering ordering)
             {
-                return (OrderExpression == ordering.OrderExpression || OrderExpression.Equals(OrderExpression)) &&
+                return OrderExpression.Equals(ordering.OrderExpression) &&
                        Kind == ordering.Kind;
             }
             else return false;
@@ -435,10 +439,14 @@ namespace wooby.Parsing
             Class = StatementClass.Select;
         }
 
-        public List<Expression> OutputColumns { get; set; } = new List<Expression>();
-        public List<Ordering> OutputOrder { get; set; } = new List<Ordering>();
-        public List<ColumnReference> Grouping { get; set; } = new List<ColumnReference>();
-        public string Identifier { get; set; } = "";
+        public List<Expression> OutputColumns { get; set; } = new();
+        public List<Ordering> OutputOrder { get; set; } = new();
+        public List<Expression> Grouping { get; set; } = new();
+
+        public string Identifier { get; set; } = string.Empty;
+
+        // Currently only supports true or false. TODO: More complete distinct
+        public bool Distinct { get; set; }
 
         public override bool Equals(object obj)
         {

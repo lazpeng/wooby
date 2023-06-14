@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using wooby.Database;
 using wooby.Database.Defaults;
 
@@ -12,54 +10,60 @@ namespace wooby.Parsing
     {
         private readonly Dictionary<string, Keyword> KeywordDict = new()
         {
-            { "SELECT", Keyword.Select },
-            { "FROM", Keyword.From },
-            { "WHERE", Keyword.Where },
-            { "NOT", Keyword.Not },
-            { "NULL", Keyword.Null },
-            { "IS", Keyword.Is },
-            { "TRUE", Keyword.True },
-            { "FALSE", Keyword.False },
-            { "AND", Keyword.And },
-            { "OR", Keyword.Or },
-            { "ASC", Keyword.Asc },
-            { "DESC", Keyword.Desc },
-            { "ORDER", Keyword.Order },
-            { "GROUP", Keyword.Group },
-            { "BY", Keyword.By },
-            { "AS", Keyword.As },
-            { "CREATE", Keyword.Create },
-            { "INSERT", Keyword.Insert },
-            { "UPDATE", Keyword.Update },
-            { "DELETE", Keyword.Delete },
-            { "ALTER", Keyword.Alter },
-            { "SET", Keyword.Set },
-            { "INTO", Keyword.Into },
-            { "VALUES", Keyword.Values },
-            { "TABLE", Keyword.Table },
-            { "COLUMN", Keyword.Column },
-            { "ADD", Keyword.Add },
-            { "CONSTRAINT", Keyword.Constraint },
+            {"SELECT", Keyword.Select},
+            {"FROM", Keyword.From},
+            {"WHERE", Keyword.Where},
+            {"NOT", Keyword.Not},
+            {"NULL", Keyword.Null},
+            {"IS", Keyword.Is},
+            {"TRUE", Keyword.True},
+            {"FALSE", Keyword.False},
+            {"AND", Keyword.And},
+            {"OR", Keyword.Or},
+            {"ASC", Keyword.Asc},
+            {"DESC", Keyword.Desc},
+            {"ORDER", Keyword.Order},
+            {"GROUP", Keyword.Group},
+            {"BY", Keyword.By},
+            {"AS", Keyword.As},
+            {"CREATE", Keyword.Create},
+            {"INSERT", Keyword.Insert},
+            {"UPDATE", Keyword.Update},
+            {"DELETE", Keyword.Delete},
+            {"ALTER", Keyword.Alter},
+            {"SET", Keyword.Set},
+            {"INTO", Keyword.Into},
+            {"VALUES", Keyword.Values},
+            {"TABLE", Keyword.Table},
+            {"COLUMN", Keyword.Column},
+            {"ADD", Keyword.Add},
+            {"CONSTRAINT", Keyword.Constraint},
+            {"DISTINCT", Keyword.Distinct},
+            {"LEFT", Keyword.Left},
+            {"RIGHT", Keyword.Right},
+            {"INNER", Keyword.Inner},
+            {"JOIN", Keyword.Join},
+            {"ON", Keyword.On},
         };
 
         private readonly Dictionary<string, Operator> OperatorDict = new()
         {
-            { "+", Operator.Plus },
-            { "-", Operator.Minus },
-            { "/", Operator.ForwardSlash },
-            { "*", Operator.Asterisk },
-            { "(", Operator.ParenthesisLeft },
-            { ")", Operator.ParenthesisRight },
-            { "^", Operator.Power },
-            { "<", Operator.LessThan },
-            { ">", Operator.MoreThan },
-            { "=", Operator.Equal },
-            { "<>", Operator.NotEqual },
-            { "!=", Operator.NotEqual },
-            { "<=", Operator.LessEqual },
-            { ">=", Operator.MoreEqual },
-            { "%", Operator.Remainder },
-            { "||", Operator.Plus }
+            {"+", Operator.Plus},
+            {"-", Operator.Minus},
+            {"/", Operator.ForwardSlash},
+            {"*", Operator.Asterisk},
+            {"(", Operator.ParenthesisLeft},
+            {")", Operator.ParenthesisRight},
+            {"^", Operator.Power},
+            {"<", Operator.LessThan},
+            {">", Operator.MoreThan},
+            {"=", Operator.Equal},
+            {"<>", Operator.NotEqual},
+            {"!=", Operator.NotEqual},
+            {"<=", Operator.LessEqual},
+            {">=", Operator.MoreEqual},
+            {"%", Operator.Remainder},
+            {"||", Operator.Plus}
         };
 
         private readonly Operator[] BooleanOperators =
@@ -80,14 +84,18 @@ namespace wooby.Parsing
             {
                 return TokenKind.LiteralNumber;
             }
+
             if (first is '\"' or '_' || char.IsLetter(first))
             {
                 return TokenKind.Symbol;
             }
-            if (OperatorDict.ContainsKey(input.Substring(offset, 1)) || OperatorDict.ContainsKey(input.Substring(offset, 2)))
+
+            if (OperatorDict.ContainsKey(input.Substring(offset, 1)) ||
+                OperatorDict.ContainsKey(input.Substring(offset, 2)))
             {
                 return TokenKind.Operator;
             }
+
             return TokenKind.None;
         }
 
@@ -95,7 +103,7 @@ namespace wooby.Parsing
         {
             var original = offset;
 
-            foreach (var c in input[offset..].TakeWhile(char.IsWhiteSpace))
+            foreach (var _ in input[offset..].TakeWhile(char.IsWhiteSpace))
             {
                 ++offset;
             }
@@ -107,25 +115,28 @@ namespace wooby.Parsing
         {
             if (offset >= input.Length)
             {
-                return new Token { Kind = TokenKind.None };
+                return new Token {Kind = TokenKind.None};
             }
 
+            var originalOffset = offset;
             var skipped = SkipWhitespace(input, offset);
 
             var result = input[offset + skipped] switch
             {
-                ',' => new Token { Kind = TokenKind.Comma, InputLength = 1 },
-                ';' => new Token { Kind = TokenKind.SemiColon, InputLength = 1 },
-                '.' => new Token { Kind = TokenKind.Dot, InputLength = 1 },
+                ',' => new Token {Kind = TokenKind.Comma, InputLength = 1},
+                ';' => new Token {Kind = TokenKind.SemiColon, InputLength = 1},
+                '.' => new Token {Kind = TokenKind.Dot, InputLength = 1},
                 '\'' => ParseString(input, offset),
                 _ => PeekToken(input, offset + skipped) switch
                 {
                     TokenKind.Symbol => ParseSymbol(input, offset),
                     TokenKind.LiteralNumber => ParseNumber(input, offset),
                     TokenKind.Operator => ParseOperator(input, offset),
-                    _ => new Token { Kind = TokenKind.None }
+                    _ => new Token {Kind = TokenKind.None}
                 }
             };
+
+            result.FullText = input.Substring(originalOffset, offset - originalOffset);
 
             return result;
         }
@@ -167,14 +178,18 @@ namespace wooby.Parsing
             offset += SkipWhitespace(input, offset);
             var start = offset;
 
-            foreach (var c in input[offset..].TakeWhile(c => (c != '\"' || originalOffset == offset) && !char.IsWhiteSpace(c) && (char.IsDigit(c) || char.IsLetter(c) || c == '_') && !char.IsControl(c)))
+            foreach (var _ in input[offset..].TakeWhile(c =>
+                         (c != '\"' || originalOffset == offset) && !char.IsWhiteSpace(c) &&
+                         (char.IsDigit(c) || char.IsLetter(c) || c == '_') && !char.IsControl(c)))
             {
                 ++offset;
             }
 
             var symbol = input[start..offset];
 
-            return KeywordDict.TryGetValue(symbol.ToUpper(), out var keyword) ? new Token { Kind = TokenKind.Keyword, KeywordValue = keyword, InputLength = offset - originalOffset } : new Token { Kind = TokenKind.Symbol, StringValue = symbol, InputLength = offset - originalOffset };
+            return KeywordDict.TryGetValue(symbol.ToUpper(), out var keyword)
+                ? new Token {Kind = TokenKind.Keyword, KeywordValue = keyword, InputLength = offset - originalOffset}
+                : new Token {Kind = TokenKind.Symbol, StringValue = symbol, InputLength = offset - originalOffset};
         }
 
         private static Token ParseString(string input, int offset)
@@ -204,7 +219,11 @@ namespace wooby.Parsing
                 }
             }
 
-            return new Token { Kind = TokenKind.LiteralString, StringValue = input[start..(offset - 1)], InputLength = offset - original };
+            return new Token
+            {
+                Kind = TokenKind.LiteralString, StringValue = input[start..(offset - 1)],
+                InputLength = offset - original
+            };
         }
 
         private static Token ParseNumber(string input, int offset)
@@ -271,7 +290,7 @@ namespace wooby.Parsing
                 throw new Exception("Dangling scientific notation in number literal");
             }
 
-            return new Token { Kind = TokenKind.LiteralNumber, NumberValue = value, InputLength = offset - original };
+            return new Token {Kind = TokenKind.LiteralNumber, NumberValue = value, InputLength = offset - original};
         }
 
         private Token ParseOperator(string input, int offset)
@@ -280,13 +299,22 @@ namespace wooby.Parsing
             offset += SkipWhitespace(input, offset);
             if (input.Length - offset > 2 && OperatorDict.TryGetValue(input.Substring(offset, 2), out Operator op))
             {
-                return new Token { Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(), InputLength = offset - original + 2 };
+                return new Token
+                {
+                    Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(),
+                    InputLength = offset - original + 2
+                };
             }
+
             if (OperatorDict.TryGetValue(input.Substring(offset, 1), out Operator o))
             {
-                return new Token { Kind = TokenKind.Operator, OperatorValue = o, StringValue = input[offset].ToString(), InputLength = offset - original + 1 };
+                return new Token
+                {
+                    Kind = TokenKind.Operator, OperatorValue = o, StringValue = input[offset].ToString(),
+                    InputLength = offset - original + 1
+                };
             }
-            
+
             return null;
         }
 
@@ -310,7 +338,8 @@ namespace wooby.Parsing
             };
         }
 
-        private static void ProcessExpressionNodeType(Expression expr, Context context, Statement statement, Expression.Node node)
+        private static void ProcessExpressionNodeType(Expression expr, Context context, Statement statement,
+            Expression.Node node)
         {
             Expression.ExpressionType nodeType;
             if (node.Kind == Expression.NodeKind.Reference)
@@ -380,10 +409,12 @@ namespace wooby.Parsing
             }
         }
 
-        private List<Expression> ParseFunctionArguments(string input, ref int ogOffset, Context context, Statement statement, bool resolveReferences)
+        private List<Expression> ParseFunctionArguments(string input, ref int ogOffset, Context context,
+            Statement statement, bool resolveReferences)
         {
             var exprs = new List<Expression>();
-            var flags = new ExpressionFlags { GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false };
+            var flags = new ExpressionFlags
+                {GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false};
 
             var offset = ogOffset;
 
@@ -436,7 +467,8 @@ namespace wooby.Parsing
                 var expected = Expression.ColumnTypeToExpressionType(func.CalledVariant.Parameters[i]);
                 var argExpression = func.Arguments[i];
 
-                if ((expected != Expression.ExpressionType.Null && expected != argExpression.Type) || argExpression.IsBoolean)
+                if ((expected != Expression.ExpressionType.Null && expected != argExpression.Type) ||
+                    argExpression.IsBoolean)
                 {
                     throw new Exception($"Argument #{i} does not match the function definition");
                 }
@@ -453,6 +485,7 @@ namespace wooby.Parsing
                 // bits such as whether it's aggregate or not, with the same number of arguments
                 return candidates.First();
             }
+
             foreach (var cand in candidates)
             {
                 if (provided.SequenceEqual(cand.Parameters.Select(Expression.ColumnTypeToExpressionType)))
@@ -464,13 +497,14 @@ namespace wooby.Parsing
             throw new Exception($"No suitable function call for {meta.Name} matches the given parameters");
         }
 
-        private int ParseSubExpression(string input, int offset, Context context, Statement statement, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences, bool insideFunction)
+        private int ParseSubExpression(string input, int offset, Context context, Statement statement,
+            ExpressionFlags flags, Expression expr, bool root, bool resolveReferences, bool insideFunction)
         {
             bool lastWasOperator = true;
             bool lastWasReference = false;
             bool first = true;
 
-            var referenceFlags = new ReferenceFlags() { ResolveReferences = resolveReferences };
+            var referenceFlags = new ReferenceFlags() {ResolveReferences = resolveReferences};
 
             do
             {
@@ -532,7 +566,7 @@ namespace wooby.Parsing
 
                         lastWasOperator = false;
 
-                        var node = new Expression.Node() { Kind = Expression.NodeKind.Null };
+                        var node = new Expression.Node() {Kind = Expression.NodeKind.Null};
                         expr.Nodes.Add(node);
                         ProcessExpressionNodeType(expr, context, statement, node);
                     }
@@ -541,7 +575,8 @@ namespace wooby.Parsing
                         if (!flags.SingleValueSubSelectAllowed)
                         {
                             throw new Exception("Sub select is not allowed in this context");
-                        } else if (!first)
+                        }
+                        else if (!first)
                         {
                             throw new Exception("Unexpected SELECT keyword");
                         }
@@ -552,7 +587,7 @@ namespace wooby.Parsing
                         offset -= token.InputLength;
                         var result = ParseSelect(input, offset, context, statement.UsedFlags, statement);
                         offset += result.OriginalText.Length;
-                        var node = new Expression.Node() { Kind = Expression.NodeKind.SubSelect, SubSelect = result };
+                        var node = new Expression.Node() {Kind = Expression.NodeKind.SubSelect, SubSelect = result};
                         expr.Nodes.Add(node);
 
                         // This sub scope is only for the sub select
@@ -577,6 +612,7 @@ namespace wooby.Parsing
                     {
                         throw new Exception("Unexpected comma in middle of expression");
                     }
+
                     offset -= token.InputLength;
                     break;
                 }
@@ -584,8 +620,11 @@ namespace wooby.Parsing
                 {
                     if (lastWasOperator)
                     {
-                        if (first && ((root && token.OperatorValue == Operator.Asterisk) || token.OperatorValue == Operator.Plus ||
-                            token.OperatorValue == Operator.Minus || token.OperatorValue == Operator.ParenthesisLeft || token.OperatorValue == Operator.ParenthesisRight))
+                        if (first && ((root && token.OperatorValue == Operator.Asterisk) ||
+                                      token.OperatorValue == Operator.Plus ||
+                                      token.OperatorValue == Operator.Minus ||
+                                      token.OperatorValue == Operator.ParenthesisLeft ||
+                                      token.OperatorValue == Operator.ParenthesisRight))
                         {
                             if (token.OperatorValue == Operator.Asterisk && !flags.GeneralWildcardAllowed)
                             {
@@ -606,7 +645,8 @@ namespace wooby.Parsing
                         expr.IsBoolean = true;
                     }
 
-                    expr.Nodes.Add(new Expression.Node() { Kind = Expression.NodeKind.Operator, OperatorValue = token.OperatorValue });
+                    expr.Nodes.Add(new Expression.Node()
+                        {Kind = Expression.NodeKind.Operator, OperatorValue = token.OperatorValue});
 
                     if (token.OperatorValue == Operator.ParenthesisLeft)
                     {
@@ -627,7 +667,12 @@ namespace wooby.Parsing
                                 throw new Exception("Undefined reference to function");
                             }
 
-                            var func = new FunctionCall() { Meta = funcMeta, Arguments = ParseFunctionArguments(input, ref offset, context, statement, resolveReferences) };
+                            var func = new FunctionCall()
+                            {
+                                Meta = funcMeta,
+                                Arguments = ParseFunctionArguments(input, ref offset, context, statement,
+                                    resolveReferences)
+                            };
                             func.CalledVariant =
                                 TryFindSuitableVariantForCall(funcMeta, func.Arguments);
 
@@ -635,13 +680,15 @@ namespace wooby.Parsing
                             {
                                 throw new Exception("Aggregate functions not allowed in this context");
                             }
-                            
-                            expr.Nodes[^1] = new Expression.Node() { Kind = Expression.NodeKind.Function, FunctionCall = func };
+
+                            expr.Nodes[^1] = new Expression.Node()
+                                {Kind = Expression.NodeKind.Function, FunctionCall = func};
                             lastWasOperator = false;
                         }
                         else
                         {
-                            offset = ParseSubExpression(input, offset, context, statement, flags, expr, false, resolveReferences, insideFunction);
+                            offset = ParseSubExpression(input, offset, context, statement, flags, expr, false,
+                                resolveReferences, insideFunction);
                             lastWasOperator = false;
                         }
                     }
@@ -657,12 +704,14 @@ namespace wooby.Parsing
                         {
                             expr.Nodes.RemoveAt(expr.Nodes.Count - 1);
                         }
+
                         break;
                     }
 
                     lastWasReference = false;
                 }
-                else if (token.Kind == TokenKind.LiteralNumber || token.Kind == TokenKind.LiteralString || token.Kind == TokenKind.Symbol)
+                else if (token.Kind == TokenKind.LiteralNumber || token.Kind == TokenKind.LiteralString ||
+                         token.Kind == TokenKind.Symbol)
                 {
                     lastWasReference = false;
 
@@ -670,6 +719,7 @@ namespace wooby.Parsing
                     {
                         throw new Exception("Two subsequent values in expression");
                     }
+
                     if (expr.IsWildcard())
                     {
                         throw new Exception("Unexpected token after wildcard");
@@ -683,7 +733,8 @@ namespace wooby.Parsing
                         // Only allow table wildcards (e.g. tablename.*) on root scope, when no other value or operator was provided
                         referenceFlags.WildcardAllowed = root && expr.Nodes.Count == 0 && flags.WildcardAllowed;
                         var symbol = ParseReference(input, offset, context, statement, referenceFlags);
-                        var symNode = new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = symbol };
+                        var symNode = new Expression.Node()
+                            {Kind = Expression.NodeKind.Reference, ReferenceValue = symbol};
 
                         if (resolveReferences)
                         {
@@ -702,7 +753,7 @@ namespace wooby.Parsing
                     else if (token.Kind == TokenKind.LiteralNumber)
                     {
                         var num = token.NumberValue;
-                        var numNode = new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = num };
+                        var numNode = new Expression.Node() {Kind = Expression.NodeKind.Number, NumberValue = num};
 
                         ProcessExpressionNodeType(expr, context, statement, numNode);
 
@@ -710,7 +761,8 @@ namespace wooby.Parsing
                     }
                     else if (token.Kind == TokenKind.LiteralString)
                     {
-                        var strNode = new Expression.Node() { Kind = Expression.NodeKind.String, StringValue = token.StringValue };
+                        var strNode = new Expression.Node()
+                            {Kind = Expression.NodeKind.String, StringValue = token.StringValue};
 
                         ProcessExpressionNodeType(expr, context, statement, strNode);
 
@@ -731,12 +783,14 @@ namespace wooby.Parsing
             return offset;
         }
 
-        public Expression ParseExpression(string input, int offset, Context context, Statement statement, ExpressionFlags flags, bool resolveReferences, bool insideFunction)
+        public Expression ParseExpression(string input, int offset, Context context, Statement statement,
+            ExpressionFlags flags, bool resolveReferences, bool insideFunction)
         {
             var expr = new Expression();
             int originalOffset = offset;
 
-            offset = ParseSubExpression(input, offset, context, statement, flags, expr, true, resolveReferences, insideFunction);
+            offset = ParseSubExpression(input, offset, context, statement, flags, expr, true, resolveReferences,
+                insideFunction);
             expr.FullText = input[originalOffset..offset];
 
             if (expr.Identifier == null)
@@ -776,7 +830,7 @@ namespace wooby.Parsing
                         }
 
                         reference = statement.TryFindReferenceRecursive(context, reference, 0);
-                        
+
                         if (reference == null)
                         {
                             throw new Exception("Unresolved reference to column");
@@ -803,7 +857,8 @@ namespace wooby.Parsing
             }
         }
 
-        public ColumnReference ParseReference(string input, int offset, Context context, Statement statement, ReferenceFlags flags)
+        public ColumnReference ParseReference(string input, int offset, Context context, Statement statement,
+            ReferenceFlags flags)
         {
             var reference = new ColumnReference();
 
@@ -852,37 +907,41 @@ namespace wooby.Parsing
                     {
                         reference.Column = token.StringValue;
                     }
+
                     break;
                 }
 
                 token = NextToken(input, offset);
-                if (token != null && token.Kind == TokenKind.Dot)
+                if (token != null)
                 {
-                    offset += token.InputLength;
-                }
-                else if ((token.Kind == TokenKind.Keyword && token.KeywordValue == Keyword.As) || token.Kind == TokenKind.Symbol)
-                {
-                    if (token.Kind == TokenKind.Keyword)
+                    if (token.Kind == TokenKind.Dot)
                     {
                         offset += token.InputLength;
-                        if (!flags.AliasAllowed)
+                    } else if ((token.Kind == TokenKind.Keyword && token.KeywordValue == Keyword.As) ||
+                               token.Kind == TokenKind.Symbol)
+                    {
+                        if (token.Kind == TokenKind.Keyword)
                         {
-                            throw new Exception("Illegal alias in reference");
+                            offset += token.InputLength;
+                            if (!flags.AliasAllowed)
+                            {
+                                throw new Exception("Illegal alias in reference");
+                            }
+
+                            token = NextToken(input, offset);
+                            if (token.Kind != TokenKind.Symbol)
+                            {
+                                throw new Exception("Expected symbol after AS keyword");
+                            }
                         }
 
-                        token = NextToken(input, offset);
-                        if (token.Kind != TokenKind.Symbol)
-                        {
-                            throw new Exception("Expected symbol after AS keyword");
-                        }
+                        reference.Identifier = token.StringValue;
+                        offset += token.InputLength;
                     }
-
-                    reference.Identifier = token.StringValue;
-                    offset += token.InputLength;
-                }
-                else
-                {
-                    break;
+                    else
+                    {
+                        break;
+                    }
                 }
             } while (true);
 
@@ -948,9 +1007,14 @@ namespace wooby.Parsing
                 throw new Exception("Unexpected WHERE when filter has already been set");
             }
 
-            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false, SingleValueSubSelectAllowed = true };
+            var exprFlags = new ExpressionFlags
+            {
+                GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false,
+                SingleValueSubSelectAllowed = true
+            };
 
-            statement.FilterConditions = ParseExpression(input, offset, context, statement, exprFlags, statement.Parent == null, false);
+            statement.FilterConditions = ParseExpression(input, offset, context, statement, exprFlags,
+                statement.Parent == null, false);
             offset += statement.FilterConditions.FullText.Length;
 
             return offset - originalOffset;

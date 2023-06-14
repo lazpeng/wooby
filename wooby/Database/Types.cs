@@ -49,7 +49,7 @@ namespace wooby.Database
     {
         public Dictionary<string, ColumnValue> EvaluatedReferences = new ();
         public long RowId;
-        public int RowIndex;
+        public int RowIndex { get; set; }
     }
 
     public enum QueryEvaluationPhase
@@ -123,7 +123,7 @@ namespace wooby.Database
         public string Name { get; protected set; }
         public long Id { get; protected set; }
 
-        public Function(long Id)
+        public Function(int Id)
         {
             this.Id = Id;
         }

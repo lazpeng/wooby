@@ -150,6 +150,9 @@ namespace TerminalManager
             Context context = null;
             IContextProvider contextProvider = null;
             var parser = new Parser();
+            
+            // If I have to type this command one more time while debugging I might go insane
+            CreateDatabase("\\c json test", ref context, ref machine, ref contextProvider);
 
             string input;
             bool quit = false;

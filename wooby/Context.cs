@@ -1,8 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 using wooby.Database;
 using wooby.Parsing;
@@ -47,9 +44,9 @@ namespace wooby
         public bool IsReal { get; set; }
         public bool IsTemporary { get; set; }
 
-        public TableMeta AddColumn(string Name, ColumnType Type, ColumnFlags flags = null)
+        public TableMeta AddColumn(string ColumnName, ColumnType Type, ColumnFlags flags = null)
         {
-            var col = new ColumnMeta { Id = Columns.Count, Name = Name, Parent = this.Id, Type = Type, Flags = flags ?? new ColumnFlags() };
+            var col = new ColumnMeta { Id = Columns.Count, Name = ColumnName, Parent = this.Id, Type = Type, Flags = flags ?? new ColumnFlags() };
             Columns.Add(col);
             return this;
         }

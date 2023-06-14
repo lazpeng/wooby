@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using wooby.Error;
 
 namespace wooby.Parsing
 {
@@ -34,28 +33,42 @@ namespace wooby.Parsing
 
         private static void AssertGroupingIsCorrect(SelectStatement query)
         {
-            // Verify that when using a group by clause, only group by-columns are referenced in the output
+            // Verify that when using a group by clause, only group by expressions are referenced in the output
 
             if (query.Grouping.Count > 0)
             {
                 if (query.OutputColumns.Any(o => o.IsWildcard()))
                 {
                     // Not sure if this is correct
-                    throw new Exception("Invalid wildcard when using group by clause");
+                    throw new WoobyParserException("Invalid wildcard when using GROUP BY clause", 0);
                 }
 
                 foreach (var output in query.OutputColumns)
                 {
-                    foreach (var node in output.Nodes)
+                    if (output.HasAggregateFunction)
                     {
-                        if (node.Kind == Expression.NodeKind.Reference)
+                        // Make sure that the aggregate function does NOT use a column or expression in the group by
+                        foreach (var node in output.Nodes)
                         {
-                            // TODO: Add aggregate functions
-                            // Verify that the used reference is present on the group by clause
-                            if (!query.Grouping.Contains(node.ReferenceValue))
+                            if (node.Kind == Expression.NodeKind.Function && node.FunctionCall.CalledVariant.IsAggregate)
                             {
-                                throw new Exception("Referencing column not present in group by clause");
+                                foreach (var parameter in node.FunctionCall.Arguments)
+                                {
+                                    if (query.Grouping.Contains(parameter))
+                                    {
+                                        throw new WoobyParserException(
+                                            "GROUP BY expression used as argument for aggregate function", 0);
+                                    }
+                                }
                             }
+                        }
+                    }
+                    else
+                    {
+                        // Else, make sure that the expression is present in the group by clause
+                        if (!query.Grouping.Contains(output))
+                        {
+                            throw new WoobyParserException("Output expression not referenced in GROUP BY clause", 0);
                         }
                     }
                 }
@@ -89,7 +102,7 @@ namespace wooby.Parsing
                             var table = context.FindTable(query.MainSource);
                             if (table == null)
                             {
-                                throw new Exception($"No such table {query.MainSource}");
+                                throw new WoobyParserException($"No such table {query.MainSource}", 0);
                             }
 
                             foreach (var col in table.Columns)
@@ -130,33 +143,48 @@ namespace wooby.Parsing
             do
             {
                 next = NextToken(input, offset);
-                if (next.Kind == TokenKind.Keyword && next.KeywordValue == Keyword.From)
+                if (next.Kind == TokenKind.Keyword)
                 {
-                    offset += next.InputLength;
-                    break;
-                }
-                else if (next.Kind == TokenKind.None)
-                {
-                    throw new Exception("Unexpected end of input");
+                    if (next.KeywordValue == Keyword.From)
+                    {
+                        if (statement.OutputColumns.Count == 0)
+                        {
+                            throw new WoobyParserException("Expected output columns", offset, next);
+                        }
+                        offset += next.InputLength;
+                        break;
+                    } else if (next.KeywordValue == Keyword.Distinct)
+                    {
+                        statement.Distinct = true;
+                        offset += next.InputLength;
+                    }
+                    else
+                    {
+                        throw new WoobyParserException("Unexpected keyword", offset, next);
+                    }
                 }
                 else if (next.Kind == TokenKind.Comma)
                 {
                     if (statement.OutputColumns.Count == 0)
                     {
-                        throw new Exception("Query starts with a comma");
+                        throw new WoobyParserException("Query starts with a comma", offset, next);
                     }
                     offset += next.InputLength;
+                }
+                else if (next.Kind == TokenKind.None)
+                {
+                    throw new WoobyParserException("Unexpected end of input", offset);
                 }
 
                 next = NextToken(input, offset);
                 if (Expression.IsTokenInvalidForExpressionStart(next))
                 {
-                    throw new Exception("Unrecognized token at start of expression in output definition");
+                    throw new WoobyParserException("Unrecognized token at start of expression in output definition", offset, next);
                 }
                 var expr = ParseExpression(input, offset, context, statement, exprFlags, false, false);
                 if (statement.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
                 {
-                    throw new Exception("Unexpected token *");
+                    throw new WoobyParserException("Unexpected token *", offset);
                 }
 
                 statement.OutputColumns.Add(expr);
@@ -169,7 +197,6 @@ namespace wooby.Parsing
             var source = ParseReference(input, offset, context, statement, new ReferenceFlags() { TableOnly = true });
             statement.MainSource = source;
             offset += source.InputLength;
-
 
             do
             {
@@ -201,7 +228,7 @@ namespace wooby.Parsing
                                     offset += next.InputLength;
                                 } else
                                 {
-                                    throw new Exception("Order by clause cannot start with a comma");
+                                    throw new WoobyParserException("Order by clause cannot start with a comma", offset);
                                 }
                             } else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
                             {
@@ -211,10 +238,14 @@ namespace wooby.Parsing
                                     break;
                                 } else
                                 {
-                                    throw new Exception("Missing left parenthesis");
+                                    throw new WoobyParserException("Missing left parenthesis", offset, next);
                                 }
                             } else if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
                             {
+                                if (firstOrder)
+                                {
+                                    throw new WoobyParserException("Expected expression after ORDER BY", offset);
+                                }
                                 break;
                             }
 
@@ -249,7 +280,7 @@ namespace wooby.Parsing
                             {
                                 if (statement.Grouping.Count == 0)
                                 {
-                                    throw new Exception("Expected column name after ORDER BY");
+                                    throw new WoobyParserException("Expected column name after GROUP BY", offset, next);
                                 } else
                                 {
                                     offset += next.InputLength;
@@ -259,9 +290,9 @@ namespace wooby.Parsing
                                 break;
                             }
 
-                            var reference = ParseReference(input, offset, context, statement, new ReferenceFlags { ResolveReferences = true });
-                            statement.Grouping.Add(reference);
-                            offset += reference.InputLength;
+                            var expr = ParseExpression(input, offset, context, statement, new ExpressionFlags(), true, false);
+                            statement.Grouping.Add(expr);
+                            offset += expr.FullText.Length;
                         }
                     }
                 }
@@ -274,12 +305,12 @@ namespace wooby.Parsing
                     }
                     else
                     {
-                        throw new Exception("Missing left parenthesis");
+                        throw new WoobyParserException("Missing left parenthesis", offset, next);
                     }
                 }
                 else if (next.Kind != TokenKind.None)
                 {
-                    throw new Exception($"Unexpected token in query at offset {offset}");
+                    throw new WoobyParserException($"Unexpected token in query at offset {offset}", offset, next);
                 }
             } while (next.Kind != TokenKind.None && next.Kind != TokenKind.SemiColon);
 
