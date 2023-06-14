@@ -103,6 +103,7 @@ namespace wooby
         public ColumnReference Identifier { get; set; }
         public List<Node> Nodes { get; set; } = new List<Node>();
         public ExpressionType Type { get; set; } = ExpressionType.Unknown;
+        public bool IsBoolean { get; set; } = false;
 
         public bool IsWildcard()
         {
@@ -121,7 +122,8 @@ namespace wooby
             {
                 return Identifier == expression.Identifier &&
                        Nodes.SequenceEqual(expression.Nodes) &&
-                       Type == expression.Type;
+                       Type == expression.Type &&
+                       IsBoolean == expression.IsBoolean;
             }
             else return false;
         }

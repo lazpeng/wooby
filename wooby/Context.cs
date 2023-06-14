@@ -55,7 +55,7 @@ namespace wooby
             Schemas.Add(new Schema() { IsMain = true, Name = "main" });
         }
 
-        private TableMeta FindTable(TableReference reference)
+        public TableMeta FindTable(TableReference reference)
         {
             string schema = reference.Schema;
             if (string.IsNullOrEmpty(schema))

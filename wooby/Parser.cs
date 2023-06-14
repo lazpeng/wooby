@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace wooby
 {
-    public static class Parser
+    public class Parser
     {
         public enum TokenKind
         {
@@ -21,7 +21,7 @@ namespace wooby
             None
         }
 
-        private static readonly Dictionary<string, Keyword> keywordDict = new()
+        private readonly Dictionary<string, Keyword> keywordDict = new()
         {
             { "SELECT", Keyword.Select },
             { "FROM", Keyword.From },
@@ -40,7 +40,7 @@ namespace wooby
             { "AS", Keyword.As }
         };
 
-        private static readonly Dictionary<char, Operator> operatorDict = new()
+        private readonly Dictionary<char, Operator> operatorDict = new()
         {
             { '+', Operator.Plus },
             { '-', Operator.Minus },
@@ -74,7 +74,7 @@ namespace wooby
             public bool IdentifierAllowed = false;
         }
 
-        private static TokenKind PeekToken(string input, int offset)
+        private TokenKind PeekToken(string input, int offset)
         {
             var first = input[offset];
 
@@ -93,6 +93,8 @@ namespace wooby
             else return TokenKind.None;
         }
 
+        private List<TableReference> CurrentSources { get; } = new List<TableReference>();
+
         private static int SkipWhitespace(string input, int offset)
         {
             int original = offset;
@@ -110,7 +112,7 @@ namespace wooby
             return offset - original;
         }
 
-        public static Token NextToken(string input, int offset = 0)
+        public Token NextToken(string input, int offset = 0)
         {
             if (offset >= input.Length)
                 return new Token() { Kind = TokenKind.None };
@@ -131,11 +133,10 @@ namespace wooby
                 }
             };
 
-            result.InputLength += skipped;
             return result;
         }
 
-        private static Token ParseSymbol(string input, int offset)
+        private Token ParseSymbol(string input, int offset)
         {
             int originalOffset = offset;
 
@@ -164,7 +165,7 @@ namespace wooby
             }
         }
 
-        private static Token ParseString(string input, int offset)
+        private Token ParseString(string input, int offset)
         {
             int original = offset;
 
@@ -175,6 +176,8 @@ namespace wooby
 
             foreach (var c in input[offset..])
             {
+                ++offset;
+
                 if (lastWasEscape)
                 {
                     lastWasEscape = false;
@@ -187,14 +190,12 @@ namespace wooby
                 {
                     break;
                 }
-
-                ++offset;
             }
 
-            return new Token { Kind = TokenKind.LiteralString, StringValue = input[start..offset], InputLength = offset - original };
+            return new Token { Kind = TokenKind.LiteralString, StringValue = input[start..(offset - 1)], InputLength = offset - original };
         }
 
-        private static Token ParseNumber(string input, int offset)
+        private Token ParseNumber(string input, int offset)
         {
             double value = 0d;
             int fraction = 0, sciNot = -1;
@@ -261,7 +262,7 @@ namespace wooby
             return new Token { Kind = TokenKind.LiteralNumber, NumberValue = value, InputLength = offset - original };
         }
 
-        private static Token ParseOperator(string input, int offset)
+        private Token ParseOperator(string input, int offset)
         {
             var original = offset;
             offset += SkipWhitespace(input, offset);
@@ -275,8 +276,10 @@ namespace wooby
             }
         }
 
-        public static Command ParseCommand(string input, Context context)
+        public Command ParseCommand(string input, Context context)
         {
+            CurrentSources.Clear();
+
             var first = NextToken(input);
 
             if (first.Kind != TokenKind.Keyword)
@@ -291,7 +294,7 @@ namespace wooby
             };
         }
 
-        private static int ParseSubExpression(string input, int offset, Context context, ExpressionFlags flags, Expression expr, bool root)
+        private int ParseSubExpression(string input, int offset, Context context, ExpressionFlags flags, Expression expr, bool root)
         {
             bool lastWasOperator = true;
             bool first = true;
@@ -344,7 +347,7 @@ namespace wooby
                             throw new Exception("Unexpected token after expression alias");
                         }
                     }
-                    else if (token.KeywordValue == Keyword.From)
+                    else
                     {
                         if (root)
                         {
@@ -353,12 +356,8 @@ namespace wooby
                         }
                         else
                         {
-                            throw new Exception("Unexpected keyword FROM in expression sub scope");
+                            throw new Exception("Unexpected keyword in expression sub scope");
                         }
-                    }
-                    else
-                    {
-                        throw new Exception("Unexpected keyword in expression");
                     }
                 }
                 else if (token.Kind == TokenKind.Comma)
@@ -389,6 +388,11 @@ namespace wooby
                     }
 
                     lastWasOperator = true;
+
+                    if (token.OperatorValue == Operator.Equal)
+                    {
+                        expr.IsBoolean = true;
+                    }
 
                     expr.Nodes.Add(new Expression.Node() { Kind = Expression.NodeKind.Operator, OperatorValue = token.OperatorValue });
 
@@ -491,7 +495,7 @@ namespace wooby
             return offset;
         }
 
-        public static Expression ParseExpression(string input, int offset, Context context, ExpressionFlags flags)
+        public Expression ParseExpression(string input, int offset, Context context, ExpressionFlags flags)
         {
             var expr = new Expression();
             int originalOffset = offset;
@@ -507,7 +511,7 @@ namespace wooby
             return expr;
         }
 
-        public static TableReference ParseTableReference(string input, int offset, Context context)
+        public TableReference ParseTableReference(string input, int offset, Context context, bool resolve)
         {
             var reference = new TableReference();
 
@@ -547,7 +551,7 @@ namespace wooby
 
             reference.InputLength = offset - originalOffset;
 
-            if (!context.IsReferenceValid(reference))
+            if (resolve && !context.IsReferenceValid(reference))
             {
                 throw new Exception("Unresolved reference");
             }
@@ -555,10 +559,11 @@ namespace wooby
             return reference;
         }
 
-        public static ColumnReference ParseReference(string input, int offset, Context context, bool allowWildcard)
+        public ColumnReference ParseReference(string input, int offset, Context context, bool allowWildcard)
         {
             int originalOffset = offset;
-            var table = ParseTableReference(input, offset, context);
+            var table = ParseTableReference(input, offset, context, false);
+            offset += table.InputLength;
             ColumnReference reference;
 
             var token = NextToken(input, offset);
@@ -595,6 +600,21 @@ namespace wooby
                 }
             }
 
+            if (string.IsNullOrEmpty(reference.Table))
+            {
+                var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => context.FindColumn(new ColumnReference() { Table = t.Name, Column = reference.Column }) != null);
+
+                if (results.Count() > 1)
+                {
+                    throw new Exception($"Ambiguous column name \"{reference.Column}\"");
+                } else if (!results.Any())
+                {
+                    throw new Exception("Unresolved reference");
+                }
+
+                reference.Table = results.First().Name;
+            }
+
             if (!context.IsReferenceValid(reference))
             {
                 throw new Exception("Unresolved column reference");
@@ -605,7 +625,7 @@ namespace wooby
             return reference;
         }
 
-        public static SelectCommand ParseSelect(string input, int offset, Context context)
+        public SelectCommand ParseSelect(string input, int offset, Context context)
         {
             int originalOffset = offset;
             var command = new SelectCommand();
@@ -650,7 +670,8 @@ namespace wooby
                 exprFlags.GeneralWildcardAllowed = false;
             } while (true);
 
-            var source = ParseTableReference(input, offset, context);
+            var source = ParseTableReference(input, offset, context, true);
+            CurrentSources.Add(source);
 
             command.MainSource = source;
             offset += source.InputLength;
@@ -663,6 +684,8 @@ namespace wooby
             do
             {
                 next = NextToken(input, offset);
+                offset += next.InputLength;
+
                 if (next.Kind == TokenKind.Keyword)
                 {
                     if (next.KeywordValue == Keyword.Where)
