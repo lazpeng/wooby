@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using wooby.Database.Defaults;
 using wooby.Database.Persistence;
+using wooby.Error;
 
 namespace wooby.Database
 {
@@ -15,6 +16,351 @@ namespace wooby.Database
         Null,
     }
 
+    public abstract record BaseValue
+    {
+        public abstract string PrettyPrint();
+        public abstract BaseValue Add(BaseValue other);
+        public abstract BaseValue Subtract(BaseValue other);
+        public abstract BaseValue Divide(BaseValue other);
+        public abstract BaseValue Multiply(BaseValue other);
+        public abstract BaseValue Power(BaseValue other);
+        public abstract BaseValue Remainder(BaseValue other);
+        public abstract BaseValue And(BaseValue other);
+        public abstract BaseValue Or(BaseValue other);
+        public abstract int Compare(BaseValue other);
+    }
+
+    public record TextValue : BaseValue
+    {
+        public string Value { get; private set; }
+
+        public TextValue(string value)
+        {
+            Value = value;
+        }
+        
+        public override string PrettyPrint()
+        {
+            return Value;
+        }
+
+        public override BaseValue Add(BaseValue other)
+        {
+            if (other is TextValue otherText)
+            {
+                return new TextValue(Value + otherText.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Subtract(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Divide(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Multiply(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Power(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Remainder(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue And(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Or(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override int Compare(BaseValue other)
+        {
+            // Does not compare if greater or lesser, only equals or not
+            if (other is TextValue otherText)
+            {
+                return Value == otherText.Value ? 0 : -1;
+            } else throw new WoobyIncompatibleTypesException(this, other);
+        }
+    }
+
+    public record NumberValue : BaseValue
+    {
+        public double Value { get; private set; }
+
+        public NumberValue(double value)
+        {
+            Value = value;
+        }
+        
+        public override string PrettyPrint()
+        {
+            return $"{Value}";
+        }
+
+        public override BaseValue Add(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                return new NumberValue(Value + num.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Subtract(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                return new NumberValue(Value - num.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Divide(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                return new NumberValue(Value / num.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Multiply(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                return new NumberValue(Value * num.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Power(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                return new NumberValue(Math.Pow(Value, num.Value));
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Remainder(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                return new NumberValue(Value % num.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue And(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Or(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override int Compare(BaseValue other)
+        {
+            if (other is NumberValue num)
+            {
+                if (Value < num.Value)
+                {
+                    return -1;
+                } else if (Value > num.Value)
+                {
+                    return 1;
+                }
+                else
+                {
+                    return 0;
+                }
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+    }
+
+    public record NullValue : BaseValue
+    {
+        public override string PrettyPrint()
+        {
+            return "";
+        }
+
+        public override BaseValue Add(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Subtract(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Divide(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Multiply(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Power(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Remainder(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue And(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Or(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override int Compare(BaseValue other)
+        {
+            return -1;
+        }
+    }
+
+    public record BooleanValue : NullValue
+    {
+        public bool Value { get; private set; }
+
+        public void Flip()
+        {
+            Value = !Value;
+        }
+
+        public override string PrettyPrint()
+        {
+            return Value ? "TRUE" : "FALSE";
+        }
+
+        public BooleanValue(bool value)
+        {
+            Value = value;
+        }
+
+        public override BaseValue And(BaseValue other)
+        {
+            if (other is BooleanValue b)
+            {
+                return new BooleanValue(Value && b.Value);
+            }
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Or(BaseValue other)
+        {
+            if (other is BooleanValue b)
+            {
+                return new BooleanValue(Value || b.Value);
+            }
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+        
+        public override int Compare(BaseValue other)
+        {
+            if (other is BooleanValue b)
+            {
+                return Value == b.Value ? 0 : -1;
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+    }
+
+    public record DateValue : BaseValue
+    {
+        public DateTime Value { get; private set; }
+
+        public DateValue(DateTime value)
+        {
+            Value = value;
+        }
+        
+        public override string PrettyPrint()
+        {
+            return Value.ToString("u");
+        }
+
+        public override BaseValue Add(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Subtract(BaseValue other)
+        {
+            // Could some day add a if (other is NumberValue)
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Divide(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Multiply(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Power(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Remainder(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue And(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override BaseValue Or(BaseValue other)
+        {
+            throw new WoobyIncompatibleTypesException(this, other);
+        }
+
+        public override int Compare(BaseValue other)
+        {
+            if (other is DateValue date)
+            {
+                return Value.CompareTo(date.Value);
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
+        }
+    }
+    /*
     public class ColumnValue
     {
         public ValueKind Kind { get; set; }
@@ -40,13 +386,18 @@ namespace wooby.Database
         {
             return new ColumnValue { Kind = ValueKind.Null };
         }
-    }
+    }*/
 
-    public class TempRow
+    public struct TempRow
     {
-        public Dictionary<string, ColumnValue> EvaluatedReferences = new ();
+        public Dictionary<string, BaseValue> EvaluatedReferences { get; set; }
         public long RowId;
-        public int RowIndex { get; set; }
+        public int RowIndex;
+
+        public TempRow()
+        {
+            EvaluatedReferences = new();
+        }
     }
 
     public enum QueryEvaluationPhase
@@ -73,7 +424,6 @@ namespace wooby.Database
     {
         public string OutputName { get; set; }
         public ValueKind Kind { get; set; }
-        public bool Visible { get; set; }
     }
 
     public class Output
@@ -85,25 +435,24 @@ namespace wooby.Database
     // Data for knowing how to order output rows
     public class RowMetaData
     {
-        public List<ColumnValue> Values { get; set; } = new List<ColumnValue>();
+        public List<BaseValue> Values { get; set; } = new List<BaseValue>();
         public int RowIndex { get; set; }
     }
 
     public struct OutputRow
     {
-        public List<ColumnValue> Values;
+        public List<BaseValue> Values;
         public long RowId;
 
         public OutputRow()
         {
-            Values = new List<ColumnValue>();
+            Values = new List<BaseValue>();
             RowId = 0;
         }
     }
 
     public class RowOrderingIntermediate
     {
-        public ColumnValue DistinctValue { get; set; }
         public List<long> MatchingRows { get; set; }
         public List<RowOrderingIntermediate> SubOrdering { get; set; }
 
@@ -124,7 +473,7 @@ namespace wooby.Database
 
     public abstract class Function
     {
-        public abstract ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments, string variantion);
+        public abstract BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion);
         public abstract IReadOnlyList<FunctionAccepts> Variations { get; }
         public string Name { get; protected set; }
         public long Id { get; protected set; }
@@ -140,7 +489,7 @@ namespace wooby.Database
         private readonly ITableDataProvider Source;
         private readonly int NumCols;
         private long RowId = long.MinValue;
-        private IEnumerable<ColumnValue> CurrentValues;
+        private IEnumerable<BaseValue> CurrentValues;
 
         public TableCursor(ITableDataProvider Source, int NumCols)
         {
@@ -181,7 +530,7 @@ namespace wooby.Database
             return RowId;
         }
 
-        public ColumnValue Read(int Index)
+        public BaseValue Read(int Index)
         {
             if (Index >= NumCols)
             {
@@ -196,12 +545,12 @@ namespace wooby.Database
             RowId = Source.Delete(RowId);
         }
 
-        public void Update(Dictionary<int, ColumnValue> values)
+        public void Update(Dictionary<int, BaseValue> values)
         {
             Source.Update(RowId, values);
         }
 
-        public long Insert(Dictionary<int, ColumnValue> values)
+        public long Insert(Dictionary<int, BaseValue> values)
         {
             var id = Source.Insert(values);
             if (id == long.MinValue || !Seek(id))
@@ -231,7 +580,7 @@ namespace wooby.Database
         public int RowsAffected { get; set; }
         public Context Context { get; }
         public ExecutionDataSource MainSource { get; set; }
-        public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
+        public Stack<BaseValue> Stack { get; set; } = new Stack<BaseValue>();
         public List<RowMetaData> OrderingResults { get; set; } = new List<RowMetaData>();
         public List<RowMetaData> GroupingResults { get; set; } = new List<RowMetaData>();
         public List<TempRow> TempRows { get; set; } = new List<TempRow>();
@@ -258,7 +607,7 @@ namespace wooby.Database
             return new TempRow { RowId = MainSource.DataProvider.CurrentRowId(), RowIndex = RowNumber };
         }
 
-        public ColumnValue PopStack(bool returnNull = false)
+        public BaseValue PopStack(bool returnNull = false)
         {
             if (Stack.Count == 0)
             {

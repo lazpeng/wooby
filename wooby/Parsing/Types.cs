@@ -151,7 +151,7 @@ namespace wooby.Parsing
             Null
         }
 
-        public class Node
+        public record Node
         {
             public NodeKind Kind;
             public string StringValue;
@@ -160,26 +160,6 @@ namespace wooby.Parsing
             public ColumnReference ReferenceValue;
             public FunctionCall FunctionCall;
             public SelectStatement SubSelect;
-
-            public override bool Equals(object obj)
-            {
-                if (obj is Node node)
-                {
-                    return Kind == node.Kind &&
-                        StringValue == node.StringValue &&
-                        NumberValue == node.NumberValue &&
-                        OperatorValue == node.OperatorValue &&
-                        (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue)) &&
-                        (FunctionCall == node.FunctionCall || FunctionCall.Equals(node.FunctionCall)) &&
-                        SubSelect == node.SubSelect || SubSelect.Equals(node.SubSelect);
-                }
-                else return false;
-            }
-
-            public override int GetHashCode()
-            {
-                return HashCode.Combine(Kind, StringValue, NumberValue, OperatorValue, ReferenceValue);
-            }
 
             public bool IsWildcard()
             {
@@ -261,13 +241,10 @@ namespace wooby.Parsing
 
         public override bool Equals(object obj)
         {
-            if (obj is Expression expression)
-            {
-                return Nodes.SequenceEqual(expression.Nodes) &&
-                       Type == expression.Type &&
-                       IsBoolean == expression.IsBoolean;
-            }
-            else return false;
+            return obj is Expression expression &&
+                   Nodes.SequenceEqual(expression.Nodes) &&
+                   Type == expression.Type &&
+                   IsBoolean == expression.IsBoolean;
         }
 
         public override int GetHashCode()
@@ -325,25 +302,13 @@ namespace wooby.Parsing
         }
     }
 
-    public class ColumnReference
+    public record ColumnReference
     {
         public string Table { get; set; } = "";
         public string Column { get; set; } = "";
         public string Identifier { get; set; } = "";
         public int InputLength { get; set; }
         public int ParentLevel { get; set; }
-
-        public override bool Equals(object obj)
-        {
-            return obj is ColumnReference reference &&
-                   Table == reference.Table &&
-                   Column == reference.Column;
-        }
-
-        public override int GetHashCode()
-        {
-            return HashCode.Combine(base.GetHashCode(), Table, Column);
-        }
 
         public string Join()
         {
@@ -419,12 +384,9 @@ namespace wooby.Parsing
 
         public override bool Equals(object obj)
         {
-            if (obj is Ordering ordering)
-            {
-                return OrderExpression.Equals(ordering.OrderExpression) &&
-                       Kind == ordering.Kind;
-            }
-            else return false;
+            return obj is Ordering ordering &&
+                   OrderExpression.Equals(ordering.OrderExpression) &&
+                   Kind == ordering.Kind;
         }
 
         public override int GetHashCode()
@@ -452,17 +414,14 @@ namespace wooby.Parsing
 
         public override bool Equals(object obj)
         {
-            if (obj is SelectStatement statement)
-            {
-                return Kind == statement.Kind &&
-                       Class == statement.Class &&
-                       OutputColumns.SequenceEqual(statement.OutputColumns) &&
-                       (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
-                       (FilterConditions == statement.FilterConditions ||
-                        FilterConditions.Equals(statement.FilterConditions)) &&
-                       OutputOrder.SequenceEqual(statement.OutputOrder);
-            }
-            else return false;
+            return obj is SelectStatement statement &&
+                   Kind == statement.Kind &&
+                   Class == statement.Class &&
+                   OutputColumns.SequenceEqual(statement.OutputColumns) &&
+                   (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
+                   (FilterConditions == statement.FilterConditions ||
+                    FilterConditions.Equals(statement.FilterConditions)) &&
+                   OutputOrder.SequenceEqual(statement.OutputOrder);
         }
 
         public override int GetHashCode()

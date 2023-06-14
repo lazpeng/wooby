@@ -1,16 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace wooby.Database.Persistence.Json
 {
     public class JsonTableDataProvider : ITableDataProvider
     {
-        private JsonCustomData PrivateData = null;
-        private Dictionary<long, JsonTableRow> TableData = null;
-        private TableMeta Meta = null;
+        private JsonCustomData PrivateData;
+        private Dictionary<long, JsonTableRow> TableData;
+        private TableMeta Meta;
 
         public long Delete(long rowid)
         {
@@ -46,19 +44,19 @@ namespace wooby.Database.Persistence.Json
             }
         }
 
-        public long Insert(Dictionary<int, ColumnValue> values)
+        public long Insert(Dictionary<int, BaseValue> values)
         {
-            var row = new JsonTableRow { RowId = PrivateData.NextRowId++, Columns = new List<ColumnValue>(Meta.Columns.Count) };
+            var row = new JsonTableRow { RowId = PrivateData.NextRowId++, Columns = new List<BaseValue>(Meta.Columns.Count) };
 
             for (int idx = 0; idx < Meta.Columns.Count; ++idx)
             {
-                if (values.TryGetValue(idx, out ColumnValue v))
+                if (values.TryGetValue(idx, out BaseValue v))
                 {
                     row.Columns.Add(v);
                 }
                 else
                 {
-                    row.Columns.Add(new ColumnValue { Kind = ValueKind.Null });
+                    row.Columns.Add(new NullValue());
                 }
             }
 
@@ -67,7 +65,7 @@ namespace wooby.Database.Persistence.Json
             return row.RowId;
         }
 
-        public IEnumerable<ColumnValue> Seek(long RowId)
+        public IEnumerable<BaseValue> Seek(long RowId)
         {
             if (TableData.TryGetValue(RowId, out JsonTableRow row))
             {
@@ -78,7 +76,7 @@ namespace wooby.Database.Persistence.Json
             }
         }
 
-        public IEnumerable<ColumnValue> SeekNext(ref long RowId)
+        public IEnumerable<BaseValue> SeekNext(ref long RowId)
         {
             bool found = RowId == long.MinValue;
 
@@ -100,7 +98,7 @@ namespace wooby.Database.Persistence.Json
             return null;
         }
 
-        public void Update(long rowid, Dictionary<int, ColumnValue> columns)
+        public void Update(long rowid, Dictionary<int, BaseValue> columns)
         {
             if (TableData.TryGetValue(rowid, out JsonTableRow row))
             {

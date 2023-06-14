@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Linq;
 using wooby.Database.Persistence;
 using wooby.Database.Defaults;
+using wooby.Error;
 using wooby.Parsing;
 
 namespace wooby.Database
@@ -97,337 +97,35 @@ namespace wooby.Database
 
         private static void CheckOutputRows(ExecutionContext context)
         {
-            if (context.QueryOutput.Rows.Count == 1 && context.QueryOutput.Rows[0].Values.All(v => v.Kind == ValueKind.Null))
+            if (context.QueryOutput.Rows.Count == 1 && context.QueryOutput.Rows[0].Values.All(v => v is NullValue))
             {
                 context.QueryOutput.Rows.RemoveAt(0);
             }
         }
 
-        public class ColumnValueComparer : IComparer<ColumnValue>, IEqualityComparer<ColumnValue>
+        public class ColumnValueComparer : IComparer<BaseValue>, IEqualityComparer<BaseValue>
         {
-            public int Compare(ColumnValue x, ColumnValue y)
+            public int Compare(BaseValue x, BaseValue y)
             {
-                if (IsGreater(x, y, false, true).Boolean)
+                if (x == null)
+                {
+                    return -1;
+                } else if (y == null)
                 {
                     return 1;
-                }
-                else
-                {
-                    return Equal(x, y).Boolean ? 0 : -1;
-                }
+                } 
+                return x.Compare(y);
             }
 
-            public bool Equals(ColumnValue x, ColumnValue y)
+            public bool Equals(BaseValue x, BaseValue y)
             {
-                return x != null && y != null && x.Kind == y.Kind && Equal(x, y).Boolean;
+                return x != null && y != null && x.Compare(y) == 0;
             }
 
-            public int GetHashCode([DisallowNull] ColumnValue obj)
+            public int GetHashCode([DisallowNull] BaseValue obj)
             {
                 return base.GetHashCode();
             }
-        }
-
-        private static void AssertValuesNotBoolean(ColumnValue a)
-        {
-            if (a.Kind == ValueKind.Boolean)
-            {
-                throw new ArgumentException("One of the arguments to the expression is a boolean value");
-            }
-        }
-
-        private static void AssertValuesNotBoolean(ColumnValue a, ColumnValue b)
-        {
-            AssertValuesNotBoolean(a);
-            AssertValuesNotBoolean(b);
-        }
-
-        private static bool AnyValuesNull(ColumnValue a, ColumnValue b)
-        {
-            return a.Kind == ValueKind.Null || b.Kind == ValueKind.Null;
-        }
-
-        private static ColumnValue Sum(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return ColumnValue.Null();
-            }
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                return new ColumnValue() {Number = lnum + rnum, Kind = ValueKind.Number};
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                var lstr = left.Text;
-                var rstr = right.Text;
-                return new ColumnValue() {Text = lstr + rstr, Kind = ValueKind.Text};
-            }
-
-            throw new ArgumentException("Incompatible values for sum operation");
-        }
-
-
-        private static ColumnValue Equal(ColumnValue left, ColumnValue right)
-        {
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                var equal = AnyValuesNull(left, left) && AnyValuesNull(right, right);
-                return new ColumnValue() {Kind = ValueKind.Boolean, Boolean = equal};
-            }
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                return new ColumnValue() {Boolean = Math.Abs(lnum - rnum) < 0.001, Kind = ValueKind.Boolean};
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                var lstr = left.Text;
-                var rstr = right.Text;
-                return new ColumnValue() {Boolean = lstr == rstr, Kind = ValueKind.Boolean};
-            }
-
-            throw new ArgumentException("Incompatible values for equals operation");
-        }
-
-        private static ColumnValue Equal(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            return Equal(left, right);
-        }
-
-        private static ColumnValue NotEqual(ExecutionContext context)
-        {
-            var result = Equal(context);
-
-            if (result.Kind == ValueKind.Boolean)
-            {
-                result.Boolean = !result.Boolean;
-            }
-            else
-            {
-                result.Kind = ValueKind.Boolean;
-                result.Boolean = true;
-            }
-
-            return result;
-        }
-
-        private static ColumnValue Less(ExecutionContext context, bool orEqual)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return new ColumnValue {Kind = ValueKind.Boolean, Boolean = false};
-            }
-
-            var result = new ColumnValue() {Boolean = false, Kind = ValueKind.Boolean};
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                result.Boolean = lnum < rnum;
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                throw new ArgumentException("Invalid operation between strings");
-            }
-
-            if (!result.Boolean && orEqual)
-            {
-                result = Equal(left, right);
-            }
-
-            return result;
-        }
-
-        private static ColumnValue IsGreater(ColumnValue left, ColumnValue right, bool orEqual, bool isOrdering = false)
-        {
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return new ColumnValue {Kind = ValueKind.Boolean, Boolean = false};
-            }
-
-            var result = new ColumnValue() {Boolean = false, Kind = ValueKind.Boolean};
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                result.Boolean = lnum > rnum;
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                if (isOrdering)
-                {
-                    result.Boolean = string.Compare(left.Text, right.Text, CultureInfo.InvariantCulture,
-                        CompareOptions.None) > 0;
-                }
-                else
-                {
-                    throw new ArgumentException("Invalid operation between strings");
-                }
-            }
-
-            if (!result.Boolean && orEqual)
-            {
-                result = Equal(left, right);
-            }
-
-            return result;
-        }
-
-        private static ColumnValue Greater(ExecutionContext context, bool orEqual)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            return IsGreater(left, right, orEqual);
-        }
-
-        private static ColumnValue And(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            var boolean = right.Kind == ValueKind.Boolean && right.Boolean && left.Kind == ValueKind.Boolean &&
-                          left.Boolean;
-            return new ColumnValue {Kind = ValueKind.Boolean, Boolean = boolean};
-        }
-
-        private static ColumnValue Or(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            var boolean = (right.Kind == ValueKind.Boolean && right.Boolean) || (left.Kind == ValueKind.Boolean &&
-                          left.Boolean);
-            return new ColumnValue {Kind = ValueKind.Boolean, Boolean = boolean};
-        }
-
-        private static ColumnValue Divide(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return ColumnValue.Null();
-            }
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                return new ColumnValue() {Number = lnum / rnum, Kind = ValueKind.Number};
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                throw new Exception("Invalid operation between strings");
-            }
-
-            throw new ArgumentException("Invalid arguments for division");
-        }
-
-        private static ColumnValue Remainder(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return ColumnValue.Null();
-            }
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                return new ColumnValue() {Number = lnum % rnum, Kind = ValueKind.Number};
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                throw new Exception("Invalid operation between strings");
-            }
-
-            throw new ArgumentException("Invalid arguments for division");
-        }
-
-        private static ColumnValue Multiply(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return ColumnValue.Null();
-            }
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                return new ColumnValue() {Number = lnum * rnum, Kind = ValueKind.Number};
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                throw new ArgumentException("Invalid operation between strings");
-            }
-
-            throw new ArgumentException("Invalid arguments for multiplication");
-        }
-
-        private static ColumnValue Sub(ExecutionContext context)
-        {
-            var right = context.Stack.Pop();
-            var left = context.Stack.Pop();
-
-            AssertValuesNotBoolean(left, right);
-            if (AnyValuesNull(left, right))
-            {
-                return ColumnValue.Null();
-            }
-
-            if (left.Kind == ValueKind.Number)
-            {
-                var lnum = left.Number;
-                var rnum = right.Number;
-
-                return new ColumnValue() {Number = lnum - rnum, Kind = ValueKind.Number};
-            }
-            else if (left.Kind == ValueKind.Text)
-            {
-                throw new Exception("Invalid operation between strings");
-            }
-
-            throw new ArgumentException("Invalid arguments provided for subtraction");
         }
 
         private static void PrepareQueryOutput(ExecutionContext exec, Expression expr)
@@ -438,7 +136,7 @@ namespace wooby.Database
                 id = expr.FullText;
             }
 
-            exec.QueryOutput.Definition.Add(new OutputColumnMeta() {OutputName = id, Visible = true});
+            exec.QueryOutput.Definition.Add(new OutputColumnMeta() {OutputName = id});
         }
 
         private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query, List<long> ids, int colIndex)
@@ -468,7 +166,6 @@ namespace wooby.Database
             {
                 result.Add(new RowOrderingIntermediate()
                 {
-                    DistinctValue = group.Key,
                     MatchingRows = group.Select(row => row.RowId).ToList()
                 });
             }
@@ -664,7 +361,7 @@ namespace wooby.Database
 
         private void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
         {
-            var newColumns = new Dictionary<int, ColumnValue>();
+            var newColumns = new Dictionary<int, BaseValue>();
             var table = exec.Context.FindTable(insert.MainSource);
             if (table == null)
             {
@@ -719,18 +416,19 @@ namespace wooby.Database
                 if (update.FilterConditions != null)
                 {
                     var filter = EvaluateExpression(exec, update.FilterConditions, null, flags);
-                    if (filter.Kind != ValueKind.Boolean)
+                    if (filter is BooleanValue boolean)
+                    {
+                        if (!boolean.Value)
+                        {
+                            continue;
+                        }
+                    } else
                     {
                         throw new Exception("Expected boolean result for WHERE clause expression");
                     }
-
-                    if (!filter.Boolean)
-                    {
-                        continue;
-                    }
                 }
                 
-                var dict = new Dictionary<int, ColumnValue>();
+                var dict = new Dictionary<int, BaseValue>();
 
                 foreach (var col in update.Columns)
                 {
@@ -760,14 +458,15 @@ namespace wooby.Database
                 {
                     var filter = EvaluateExpression(exec, delete.FilterConditions, null,
                         new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final});
-                    if (filter.Kind != ValueKind.Boolean)
+                    if (filter is BooleanValue boolean)
+                    {
+                        if (!boolean.Value)
+                        {
+                            continue;
+                        }
+                    } else
                     {
                         throw new Exception("Expected boolean result for WHERE clause expression");
-                    }
-
-                    if (!filter.Boolean)
-                    {
-                        continue;
                     }
                 }
                 affected += 1;
@@ -777,12 +476,12 @@ namespace wooby.Database
             exec.RowsAffected = affected;
         }
 
-        private ColumnValue ReadColumnReference(ExecutionContext exec, ColumnReference reference)
+        private BaseValue ReadColumnReference(ExecutionContext exec, ColumnReference reference)
         {
             var sourceContext = GetContextForLevel(exec, reference.ParentLevel);
             if (sourceContext.RowNumber > sourceContext.TempRows.Count - 1 || !sourceContext
                     .TempRows[sourceContext.RowNumber].EvaluatedReferences
-                    .TryGetValue(reference.Join(), out ColumnValue value))
+                    .TryGetValue(reference.Join(), out BaseValue value))
             {
                 var meta = exec.Context.FindColumn(reference);
                 value = sourceContext.MainSource.DataProvider.Read(meta.Id);
@@ -791,7 +490,7 @@ namespace wooby.Database
             return value;
         }
 
-        private ColumnValue EvaluateFunctionCall(ExecutionContext exec, FunctionCall call, TempRow temp,
+        private BaseValue EvaluateFunctionCall(ExecutionContext exec, FunctionCall call, TempRow? temp,
             EvaluationFlags flags)
         {
             var validAggregate = flags.Phase == QueryEvaluationPhase.Final &&
@@ -802,13 +501,12 @@ namespace wooby.Database
                 throw new Exception("Illegal use of aggregate function here");
             }
 
-            var arguments = new List<ColumnValue>();
+            var arguments = new List<BaseValue>();
             if (call.CalledVariant.IsAggregate)
             {
                 // Instead, we pass an identifier for each expression
                 arguments.AddRange(
-                    call.Arguments.Select(a => new ColumnValue
-                        {Kind = ValueKind.Text, Text = FormatTempRowReferenceAggFunc(call, a)}));
+                    call.Arguments.Select(a => new TextValue(FormatTempRowReferenceAggFunc(call, a))));
             }
             else
             {
@@ -824,48 +522,31 @@ namespace wooby.Database
 
         private static void PerformOperationOnStack(ExecutionContext exec, Operator op)
         {
-            switch (op)
+            var right = exec.Stack.Pop();
+            var left = exec.Stack.Pop();
+
+            var tb = (bool val) => new BooleanValue(val);
+
+            var result = op switch
             {
-                case Operator.Plus:
-                    exec.Stack.Push(Sum(exec));
-                    break;
-                case Operator.Minus:
-                    exec.Stack.Push(Sub(exec));
-                    break;
-                case Operator.ForwardSlash:
-                    exec.Stack.Push(Divide(exec));
-                    break;
-                case Operator.Remainder:
-                    exec.Stack.Push(Remainder(exec));
-                    break;
-                case Operator.Asterisk:
-                    exec.Stack.Push(Multiply(exec));
-                    break;
-                case Operator.Equal:
-                    exec.Stack.Push(Equal(exec));
-                    break;
-                case Operator.NotEqual:
-                    exec.Stack.Push(NotEqual(exec));
-                    break;
-                case Operator.LessThan:
-                    exec.Stack.Push(Less(exec, false));
-                    break;
-                case Operator.MoreThan:
-                    exec.Stack.Push(Greater(exec, false));
-                    break;
-                case Operator.LessEqual:
-                    exec.Stack.Push(Less(exec, true));
-                    break;
-                case Operator.MoreEqual:
-                    exec.Stack.Push(Greater(exec, true));
-                    break;
-                case Operator.And:
-                    exec.Stack.Push(And(exec));
-                    break;
-                case Operator.Or:
-                    exec.Stack.Push(Or(exec));
-                    break;
-            }
+                Operator.Plus => left.Add(right),
+                Operator.Minus => left.Subtract(right),
+                Operator.ForwardSlash => left.Divide(right),
+                Operator.Asterisk => left.Multiply(right),
+                Operator.Remainder => left.Remainder(right),
+                Operator.Power => left.Remainder(right),
+                Operator.Equal => tb(left.Compare(right) == 0),
+                Operator.NotEqual => tb(left.Compare(right) != 0),
+                Operator.LessThan => tb(left.Compare(right) < 0),
+                Operator.LessEqual => tb(left.Compare(right) <= 0),
+                Operator.MoreThan => tb(left.Compare(right) > 0),
+                Operator.MoreEqual => tb(left.Compare(right) >= 0),
+                Operator.And => left.And(right),
+                Operator.Or => left.Or(right),
+                _ => throw new WoobyDatabaseException("Unreacheable code: Invalid operator")
+            };
+            
+            exec.Stack.Push(result);
         }
 
         private void PerformSubSelect(ExecutionContext exec, SelectStatement subQuery)
@@ -884,23 +565,23 @@ namespace wooby.Database
             }
             else
             {
-                exec.Stack.Push(new ColumnValue {Kind = ValueKind.Null});
+                exec.Stack.Push(new NullValue());
             }
         }
 
-        private void PushNodeColumnValueToStack(ExecutionContext exec, Expression.Node node, TempRow tempRow)
+        private void PushNodeColumnValueToStack(ExecutionContext exec, Expression.Node node, TempRow? tempRow)
         {
             switch (node.Kind)
             {
                 case Expression.NodeKind.Number:
-                    exec.Stack.Push(new ColumnValue {Kind = ValueKind.Number, Number = node.NumberValue});
+                    exec.Stack.Push(new NumberValue(node.NumberValue));
                     break;
                 case Expression.NodeKind.String:
-                    exec.Stack.Push(new ColumnValue {Kind = ValueKind.Text, Text = node.StringValue});
+                    exec.Stack.Push(new TextValue(node.StringValue));
                     break;
                 case Expression.NodeKind.Reference:
                     if (tempRow == null ||
-                        !tempRow.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out ColumnValue value))
+                        !tempRow.Value.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out BaseValue value))
                     {
                         value = ReadColumnReference(exec, node.ReferenceValue);
                     }
@@ -910,7 +591,7 @@ namespace wooby.Database
             }
         }
 
-        private int EvaluateSubExpression(int offset, ExecutionContext exec, Expression expr, TempRow tempRow,
+        private int EvaluateSubExpression(int offset, ExecutionContext exec, Expression expr, TempRow? tempRow,
             EvaluationFlags flags)
         {
             var opStack = new Stack<Operator>();
@@ -927,7 +608,7 @@ namespace wooby.Database
                     {
                         var call = node.FunctionCall;
                         if (tempRow == null ||
-                            !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                            !tempRow.Value.EvaluatedReferences.TryGetValue(call.FullText, out BaseValue value))
                         {
                             if (call.CalledVariant.IsAggregate)
                             {
@@ -997,7 +678,7 @@ namespace wooby.Database
                         if (tempRow != null)
                         {
                             var call = node.FunctionCall;
-                            if (!tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                            if (!tempRow.Value.EvaluatedReferences.TryGetValue(call.FullText, out BaseValue value))
                             {
                                 value = EvaluateFunctionCall(exec, call, tempRow, flags);
                             }
@@ -1028,7 +709,7 @@ namespace wooby.Database
             return i;
         }
 
-        private ColumnValue EvaluateExpression(ExecutionContext exec, Expression expr, TempRow temp,
+        private BaseValue EvaluateExpression(ExecutionContext exec, Expression expr, TempRow? temp,
             EvaluationFlags flags)
         {
             EvaluateSubExpression(0, exec, expr, temp, flags);
@@ -1098,14 +779,17 @@ namespace wooby.Database
                 {
                     var filter = EvaluateExpression(exec, query.FilterConditions, null,
                         new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final});
-                    if (filter.Kind != ValueKind.Boolean)
+
+                    if (filter is BooleanValue filterBoolean)
+                    {
+                        if (!filterBoolean.Value)
+                        {
+                            continue;
+                        }
+                    }
+                    else
                     {
                         throw new Exception("Expected boolean result for WHERE clause expression");
-                    }
-
-                    if (!filter.Boolean)
-                    {
-                        continue;
                     }
                 }
 

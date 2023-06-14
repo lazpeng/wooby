@@ -29,9 +29,9 @@ class CurrentDate_Function : Function
         Name = "CURRENT_DATE";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext _, List<ColumnValue> __, string variation)
+    public override BaseValue WhenCalled(ExecutionContext _, List<BaseValue> __, string variation)
     {
-        return new ColumnValue() {Kind = ValueKind.Date, Date = DateTime.Now};
+        return new DateValue(DateTime.Now);
     }
 }
 
@@ -52,9 +52,9 @@ class DatabaseName_Function : Function
         Name = "DBNAME";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext _, List<ColumnValue> __, string variation)
+    public override BaseValue WhenCalled(ExecutionContext _, List<BaseValue> __, string variation)
     {
-        return new ColumnValue() {Kind = ValueKind.Text, Text = "wooby"};
+        return new TextValue("Wooby");
     }
 }
 
@@ -75,9 +75,9 @@ class RowNum_Function : Function
         Name = "ROWNUM";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> _, string variation)
+    public override BaseValue WhenCalled(ExecutionContext exec, List<BaseValue> _, string variation)
     {
-        return new ColumnValue() {Kind = ValueKind.Number, Number = exec.RowNumber};
+        return new NumberValue(exec.RowNumber);
     }
 }
 
@@ -98,9 +98,9 @@ class RowId_Function : Function
         Name = "ROWID";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> _, string variation)
+    public override BaseValue WhenCalled(ExecutionContext exec, List<BaseValue> _, string variation)
     {
-        return new ColumnValue() {Kind = ValueKind.Number, Number = exec.MainSource.DataProvider.CurrentRowId()};
+        return new NumberValue(exec.MainSource.DataProvider.CurrentRowId());
     }
 }
 
@@ -121,11 +121,16 @@ class Trunc_Function : Function
         Name = "TRUNC";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> arguments, string variation)
+    public override BaseValue WhenCalled(ExecutionContext exec, List<BaseValue> arguments, string variation)
     {
-        var date = arguments[0].Date;
-        date = date.AddHours(0 - date.Hour).AddMinutes(0 - date.Minute).AddSeconds(0 - date.Second);
-        return new ColumnValue() {Kind = ValueKind.Date, Date = date};
+        if (arguments[0] is DateValue d)
+        {
+            var date = d.Value;
+            date = date.AddHours(0 - date.Hour).AddMinutes(0 - date.Minute).AddSeconds(0 - date.Second);
+            return new DateValue(date);
+        }
+
+        return new NullValue();
     }
 }
 
@@ -147,10 +152,10 @@ class Count_Function : Function
         Name = "COUNT";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> arguments, string variation)
+    public override BaseValue WhenCalled(ExecutionContext exec, List<BaseValue> arguments, string variation)
     {
         // Count the number of rows in TempRows
-        return new ColumnValue() {Kind = ValueKind.Number, Number = exec.TempRows.Count};
+        return new NumberValue(exec.TempRows.Count);
     }
 }
 
@@ -180,19 +185,20 @@ class Min_Function : Function
         Name = "MIN";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments, string variantion)
+    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion)
     {
+        // FIXME: Terrible
         IEnumerable<double> data;
         if (variantion == "regular")
         {
-            data = arguments.Select(a => a.Number);
+            data = arguments.Select(a => (a as NumberValue).Value);
         }
         else
         {
-            data = context.TempRows.Select(r => r.EvaluatedReferences[arguments[0].Text].Number);
+            data = context.TempRows.Select(r => (r.EvaluatedReferences[(arguments[0] as TextValue).Value] as NumberValue).Value);
         }
         var sorted = data.OrderBy(v => v);
-        return new ColumnValue() {Kind = ValueKind.Number, Number = sorted.First()};
+        return new NumberValue(sorted.First());
     }
 }
 
@@ -221,19 +227,20 @@ class Max_Function : Function
         Name = "MAX";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments, string variantion)
+    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion)
     {
+        // FIXME
         IEnumerable<double> data;
         if (variantion == "regular")
         {
-            data = arguments.Select(a => a.Number);
+            data = arguments.Select(a => (a as NumberValue).Value);
         }
         else
         {
-            data = context.TempRows.Select(r => r.EvaluatedReferences[arguments[0].Text].Number);
+            data = context.TempRows.Select(r => (r.EvaluatedReferences[(arguments[0] as TextValue).Value] as NumberValue).Value);
         }
         var sorted = data.OrderByDescending(v => v);
-        return new ColumnValue() {Kind = ValueKind.Number, Number = sorted.First()};
+        return new NumberValue(sorted.First());
     }
 }
 
@@ -255,9 +262,10 @@ class Sum_Function : Function
         Name = "SUM";
     }
 
-    public override ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments, string variantion)
+    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion)
     {
-        var result = context.TempRows.Select(r => r.EvaluatedReferences[arguments[0].Text].Number).Sum();
-        return new ColumnValue() {Kind = ValueKind.Number, Number = result};
+        // FIXME
+        var result = context.TempRows.Select(r => (r.EvaluatedReferences[(arguments[0] as TextValue).Value] as NumberValue).Value).Sum();
+        return new NumberValue(result);
     }
 }

@@ -12,26 +12,26 @@ public class Dual_DataProvider : ITableDataProvider
         throw new Exception("Not supported");
     }
 
-    public long Insert(Dictionary<int, ColumnValue> values)
+    public long Insert(Dictionary<int, BaseValue> values)
     {
         throw new Exception("Not supported");
     }
 
-    public void Update(long rowid, Dictionary<int, ColumnValue> columns)
+    public void Update(long rowid, Dictionary<int, BaseValue> columns)
     {
         throw new Exception("Not supported");
     }
 
-    public IEnumerable<ColumnValue> Seek(long RowId)
+    public IEnumerable<BaseValue> Seek(long RowId)
     {
         if (RowId == 0)
         {
-            return new List<ColumnValue>();
+            return new List<BaseValue>();
         }
         else return null;
     }
 
-    public IEnumerable<ColumnValue> SeekNext(ref long RowId)
+    public IEnumerable<BaseValue> SeekNext(ref long RowId)
     {
         if (RowId < 0)
         {
@@ -54,12 +54,12 @@ public class InMemory_DataProvider : ITableDataProvider
     struct Row
     {
         public long RowId;
-        public List<ColumnValue> Columns;
+        public List<BaseValue> Columns;
     }
 
     private List<Row> Rows;
 
-    protected void SetupRows(List<List<ColumnValue>> Values)
+    protected void SetupRows(List<List<BaseValue>> Values)
     {
         foreach (var row in Values)
         {
@@ -84,12 +84,12 @@ public class InMemory_DataProvider : ITableDataProvider
         return null;
     }
 
-    IEnumerable<ColumnValue> ITableDataProvider.Seek(long RowId)
+    IEnumerable<BaseValue> ITableDataProvider.Seek(long RowId)
     {
         return Find(RowId, out int _)?.Columns;
     }
 
-    public IEnumerable<ColumnValue> SeekNext(ref long RowId)
+    public IEnumerable<BaseValue> SeekNext(ref long RowId)
     {
         Find(RowId, out int index);
 
@@ -123,19 +123,19 @@ public class InMemory_DataProvider : ITableDataProvider
         }
     }
 
-    public long Insert(Dictionary<int, ColumnValue> values)
+    public long Insert(Dictionary<int, BaseValue> values)
     {
-        var row = new Row {RowId = ++LastRowId, Columns = new List<ColumnValue>(Meta.Columns.Count)};
+        var row = new Row {RowId = ++LastRowId, Columns = new List<BaseValue>(Meta.Columns.Count)};
 
         for (int idx = 0; idx < Meta.Columns.Count; ++idx)
         {
-            if (values.TryGetValue(idx, out ColumnValue v))
+            if (values.TryGetValue(idx, out BaseValue v))
             {
                 row.Columns.Add(v);
             }
             else
             {
-                row.Columns.Add(new ColumnValue {Kind = ValueKind.Null});
+                row.Columns.Add(new NullValue());
             }
         }
 
@@ -144,7 +144,7 @@ public class InMemory_DataProvider : ITableDataProvider
         return row.RowId;
     }
 
-    public void Update(long rowid, Dictionary<int, ColumnValue> columns)
+    public void Update(long rowid, Dictionary<int, BaseValue> columns)
     {
         var row = Find(rowid, out int _);
 
@@ -193,15 +193,13 @@ public class LoveLive_DataProvider : InMemory_DataProvider
     {
         base.Initialize(context, meta);
         SetupRows(Groups.Select(g =>
-            new List<ColumnValue>()
+            new List<BaseValue>()
             {
-                new ColumnValue() {Kind = ValueKind.Number, Number = g.Id},
-                g.ParentId != null
-                    ? new ColumnValue {Kind = ValueKind.Number, Number = g.ParentId.Value}
-                    : new ColumnValue {Kind = ValueKind.Null},
-                new ColumnValue() {Kind = ValueKind.Text, Text = g.Nome},
-                new ColumnValue() {Kind = ValueKind.Number, Number = g.Ano},
-                new ColumnValue() {Kind = ValueKind.Number, Number = g.NumIntegrantes}
+                new NumberValue(g.Id),
+                g.ParentId != null ? new NumberValue(g.ParentId.Value) : new NullValue(),
+                new TextValue(g.Nome),
+                new NumberValue(g.Ano),
+                new NumberValue(g.NumIntegrantes)
             }).ToList());
     }
 }
