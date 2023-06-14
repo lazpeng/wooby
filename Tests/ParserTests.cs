@@ -7,6 +7,8 @@ using System.Text;
 using System.Threading.Tasks;
 
 using wooby;
+using wooby.Parsing;
+using wooby.Database;
 
 namespace Tests
 {
@@ -167,10 +169,10 @@ namespace Tests
             var ctx = new Context();
             ctx.AddTable(new TableMeta() { Name = "table" });
 
-            var command = new Parser().ParseCommand(input, ctx);
-            Assert.IsTrue(command is SelectCommand);
+            var command = new Parser().ParseStatement(input, ctx);
+            Assert.IsTrue(command is SelectStatement);
 
-            var expected = new SelectCommand()
+            var expected = new SelectStatement()
             {
                 MainSource = new ColumnReference() { Table = "table" }
             };
@@ -197,10 +199,10 @@ namespace Tests
             var column = new ColumnMeta() { Name = "a", Type = ColumnType.Number };
             ctx.Tables.Add(new TableMeta() { Name = "table", Columns = new List<ColumnMeta>() { column } });
 
-            var command = new Parser().ParseCommand(input, ctx);
-            Assert.IsTrue(command is SelectCommand);
+            var command = new Parser().ParseStatement(input, ctx);
+            Assert.IsTrue(command is SelectStatement);
 
-            var expected = new SelectCommand()
+            var expected = new SelectStatement()
             {
                 MainSource = new ColumnReference() { Table = "table" },
                 OutputOrder = new Ordering()
@@ -258,10 +260,10 @@ namespace Tests
             ctx.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.String }, table);
             ctx.AddTable(table);
 
-            var command = new Parser().ParseCommand(input, ctx);
-            Assert.IsTrue(command is SelectCommand);
+            var command = new Parser().ParseStatement(input, ctx);
+            Assert.IsTrue(command is SelectStatement);
 
-            var expected = new SelectCommand()
+            var expected = new SelectStatement()
             {
                 MainSource = new ColumnReference() { Table = "table" }
             };

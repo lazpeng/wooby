@@ -2,6 +2,9 @@
 using System.Collections.Generic;
 using System.Linq;
 
+using wooby.Database;
+using wooby.Parsing;
+
 namespace wooby
 {
     class Program
@@ -88,8 +91,8 @@ namespace wooby
                     quit = true;
                 } else
                 {
-                    var cmd = parser.ParseCommand(input, context);
-                    var result = machine.Execute(Compiler.CompileCommand(cmd, context));
+                    var cmd = parser.ParseStatement(input, context);
+                    var result = machine.Execute(cmd);
                     PrintCommandOutput(result);
                 }
             }
