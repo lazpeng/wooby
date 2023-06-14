@@ -55,7 +55,8 @@ namespace wooby.Parsing
             { "!=", Operator.NotEqual },
             { "<=", Operator.LessEqual },
             { ">=", Operator.MoreEqual },
-            { "%", Operator.Remainder }, 
+            { "%", Operator.Remainder },
+            { "||", Operator.Plus }
         };
 
         private readonly Operator[] booleanOperators = new Operator[]
@@ -107,7 +108,9 @@ namespace wooby.Parsing
         public Token NextToken(string input, int offset = 0)
         {
             if (offset >= input.Length)
-                return new Token() { Kind = TokenKind.None };
+            {
+                return new Token { Kind = TokenKind.None };
+            }
 
             var skipped = SkipWhitespace(input, offset);
 
@@ -122,7 +125,7 @@ namespace wooby.Parsing
                     TokenKind.Symbol => ParseSymbol(input, offset),
                     TokenKind.LiteralNumber => ParseNumber(input, offset),
                     TokenKind.Operator => ParseOperator(input, offset),
-                    _ => new Token() { Kind = TokenKind.None }
+                    _ => new Token { Kind = TokenKind.None }
                 }
             };
 

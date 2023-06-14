@@ -425,12 +425,6 @@ namespace wooby.Parsing
         public List<Expression> Values { get; set; } = new List<Expression>();
     }
 
-    public class UpdateColumnNode
-    {
-        public string Column { get; set; }
-        public Expression Value { get; set; }
-    }
-
     public class UpdateStatement : Statement
     {
         public UpdateStatement()
@@ -439,7 +433,7 @@ namespace wooby.Parsing
             Class = StatementClass.Update;
         }
 
-        public List<UpdateColumnNode> Columns { get; set; } = new List<UpdateColumnNode>();
+        public List<Tuple<ColumnReference, Expression>> Columns { get; set; } = new List<Tuple<ColumnReference, Expression>>();
     }
 
     public class DeleteStatement : Statement
