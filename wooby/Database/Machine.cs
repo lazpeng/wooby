@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
+using wooby.Database.Persistence;
 using wooby.Parsing;
 
 namespace wooby.Database
@@ -15,15 +16,19 @@ namespace wooby.Database
 
         public Context Initialize()
         {
-            Context = new Context();
-
-            InitializeVariables();
-            InitializeTables();
+            Initialize(new Context());
 
             return Context;
         }
 
-        private void InitializeVariables()
+        public void Initialize(Context context)
+        {
+            Context = context;
+            InitializeFunctions();
+            InitializeTables();
+        }
+
+        private void InitializeFunctions()
         {
             long id = 0;
 
@@ -36,9 +41,9 @@ namespace wooby.Database
                 new Trunc_Function(id++),
             };
 
-            foreach (var v in Functions)
+            foreach (var func in Functions)
             {
-                Context.Functions.Add(new wooby.Function() { Id = v.Id, Name = v.Name, Type = v.ResultType, Parameters = v.Parameters });
+                Context.AddFunction(func);
             }
         }
 
@@ -53,17 +58,22 @@ namespace wooby.Database
                 IsReal = false,
                 IsTemporary = false
             };
-            Context.AddTable(dualMeta);
-            Tables.Add(new TableData { Meta = dualMeta, DataProvider = new Dual_DataProvider() });
+            RegisterTable(dualMeta, new Dual_DataProvider());
 
-            var loveliveMeta = new TableMeta() { Name = "lovelive" };
-            Context.AddColumn(new ColumnMeta() { Name = "id", Type = ColumnType.Number }, loveliveMeta);
-            Context.AddColumn(new ColumnMeta() { Name = "parent_id", Type = ColumnType.Number }, loveliveMeta);
-            Context.AddColumn(new ColumnMeta() { Name = "nome", Type = ColumnType.String }, loveliveMeta);
-            Context.AddColumn(new ColumnMeta() { Name = "ano", Type = ColumnType.Number }, loveliveMeta);
-            Context.AddColumn(new ColumnMeta() { Name = "integrantes", Type = ColumnType.Number }, loveliveMeta);
-            Context.AddTable(loveliveMeta);
-            Tables.Add(new TableData() { Meta = loveliveMeta, DataProvider = new LoveLive_DataProvider(loveliveMeta) });
+            var loveliveMeta = new TableMeta() { Name = "lovelive" }
+                .AddColumn("id", ColumnType.Number)
+                .AddColumn("parent_id", ColumnType.Number)
+                .AddColumn("nome", ColumnType.String)
+                .AddColumn("ano", ColumnType.Number)
+                .AddColumn("integrantes", ColumnType.Number);
+            RegisterTable(loveliveMeta, new LoveLive_DataProvider());
+        }
+
+        private void RegisterTable(TableMeta Meta, ITableDataProvider Provider)
+        {
+            Context.AddTable(Meta);
+            Provider.Initialize(Context, Meta);
+            Tables.Add(new TableData { Meta = Meta, DataProvider = Provider });
         }
 
         private static void CheckOutputRows(ExecutionContext context)
@@ -539,22 +549,10 @@ namespace wooby.Database
 
             foreach (var col in statement.Columns)
             {
-                var colmeta = new ColumnMeta
-                {
-                    Name = col.Name,
-                    Type = col.Type,
-                    Parent = meta,
-                };
-
-                Context.AddColumn(colmeta, meta);
+                meta.AddColumn(col.Name, col.Type);
             }
 
-            exec.Context.AddTable(meta);
-            Tables.Add(new TableData
-            {
-                Meta = meta,
-                DataProvider = new InMemory_DataProvider(meta)
-            });
+            RegisterTable(meta, PersistenceBackendHelper.GetTableDataProvider(exec.Context));
         }
 
         private void ExecuteInsert(ExecutionContext exec, InsertStatement insert)

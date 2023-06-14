@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
+using wooby.Database;
 using wooby.Parsing;
 
 namespace wooby
@@ -15,6 +16,11 @@ namespace wooby
         Boolean,
         Date,
         Null
+    }
+
+    public enum ContextSourceType
+    {
+        Json
     }
 
     public class ColumnFlags
@@ -40,9 +46,16 @@ namespace wooby
         public List<ColumnMeta> Columns { get; set; } = new List<ColumnMeta>();
         public bool IsReal { get; set; }
         public bool IsTemporary { get; set; }
+
+        public TableMeta AddColumn(string Name, ColumnType Type, ColumnFlags flags = null)
+        {
+            var col = new ColumnMeta { Id = Columns.Count, Name = Name, Parent = this, Type = Type, Flags = flags ?? new ColumnFlags() };
+            Columns.Add(col);
+            return this;
+        }
     }
 
-    public class Function
+    public class FunctionMeta
     {
         public string Name { get; set; }
         public long Id { get; set; }
@@ -54,20 +67,11 @@ namespace wooby
     public class Context
     {
         public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
-        public List<Function> Functions { get; private set; } = new List<Function>();
-
-        public static void AddColumn(ColumnMeta column, TableMeta target)
-        {
-            column.Parent = target;
-
-            int id = 0;
-            if (target.Columns.Count > 0)
-            {
-                id = target.Columns.Max(c => c.Id) + 1;
-            }
-            column.Id = id;
-            target.Columns.Add(column);
-        }
+        public List<FunctionMeta> Functions { get; private set; } = new List<FunctionMeta>();
+        public string DatabaseFilename { get; set; }
+        public ContextSourceType DatabaseSource { get; set; }
+        public object CustomSourceData { get; set; }
+        public string CustomSourceDataString { get; set; }
 
         public void AddTable(TableMeta table)
         {
@@ -78,6 +82,11 @@ namespace wooby
             }
             table.Id = id;
             Tables.Add(table);
+        }
+
+        public void AddFunction(Function v)
+        {
+            Functions.Add(new FunctionMeta() { Id = v.Id, Name = v.Name, Type = v.ResultType, Parameters = v.Parameters });
         }
 
         public TableMeta FindTable(ColumnReference reference)
@@ -97,7 +106,7 @@ namespace wooby
             return null;
         }
 
-        public Function FindFunction(string Name)
+        public FunctionMeta FindFunction(string Name)
         {
             return Functions.Find(v => v.Name.ToUpper() == Name.ToUpper());
         }
