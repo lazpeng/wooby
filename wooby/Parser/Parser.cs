@@ -76,6 +76,11 @@ namespace wooby.Parsing
 
         private List<ColumnReference> CurrentSources { get; } = new List<ColumnReference>();
 
+        public void AddSource(ColumnReference reference)
+        {
+            CurrentSources.Add(reference);
+        }
+
         private static int SkipWhitespace(string input, int offset)
         {
             int original = offset;
@@ -248,10 +253,11 @@ namespace wooby.Parsing
         {
             var original = offset;
             offset += SkipWhitespace(input, offset);
-            if (operatorDict.TryGetValue(input.Substring(offset, 2), out Operator op))
+            if (input.Length - offset > 2 && operatorDict.TryGetValue(input.Substring(offset, 2), out Operator op))
             {
                 return new Token { Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(), InputLength = offset - original + 2 };
-            } else if (operatorDict.TryGetValue(input.Substring(offset, 1), out Operator o))
+            }
+            else if (operatorDict.TryGetValue(input.Substring(offset, 1), out Operator o))
             {
                 return new Token { Kind = TokenKind.Operator, OperatorValue = o, StringValue = input[offset].ToString(), InputLength = offset - original + 1 };
             }
@@ -298,16 +304,34 @@ namespace wooby.Parsing
                 }
                 else
                 {
-                    var variable = context.FindVariable(node.ReferenceValue.Column);
-                    if (variable != null && string.IsNullOrEmpty(node.ReferenceValue.Table))
+                    var function = context.FindFunction(node.ReferenceValue.Column);
+                    if (function != null && string.IsNullOrEmpty(node.ReferenceValue.Table))
                     {
-                        nodeType = Expression.ColumnTypeToExpressionType(variable.Type);
-                    }
-                    else
+                        nodeType = Expression.ColumnTypeToExpressionType(function.Type);
+                    } else
                     {
                         throw new Exception("Unresolved reference in expression");
                     }
                 }
+            }
+            else if (node.Kind == Expression.NodeKind.Function)
+            {
+                var fun = context.FindFunction(node.FunctionCall.Name);
+                if (fun != null)
+                {
+                    nodeType = Expression.ColumnTypeToExpressionType(fun.Type);
+                }
+                else
+                {
+                    throw new Exception("Unresolved reference in expression");
+                }
+
+                foreach (var arg in node.FunctionCall.Arguments)
+                {
+                    ResolveUnresolvedReferences(arg, context);
+                }
+
+                ValidateFunctionCall(context, node.FunctionCall);
             }
             else if (node.Kind == Expression.NodeKind.Number)
             {
@@ -326,7 +350,6 @@ namespace wooby.Parsing
                 return;
             }
 
-
             if (expr.Type == Expression.ExpressionType.Unknown)
             {
                 expr.Type = nodeType;
@@ -337,9 +360,76 @@ namespace wooby.Parsing
             }
         }
 
-        private int ParseSubExpression(string input, int offset, Context context, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences)
+        private List<Expression> ParseFunctionArguments(string input, ref int og_offset, Context context, bool resolveReferences)
+        {
+            var exprs = new List<Expression>();
+            var flags = new ExpressionFlags { GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false };
+
+            int offset = og_offset;
+
+            while (true)
+            {
+                var next = NextToken(input, offset);
+                if (next.Kind == TokenKind.Comma && exprs.Count == 0)
+                {
+                    if (exprs.Count > 0)
+                    {
+                        offset += next.InputLength;
+                    } else
+                    {
+                        throw new Exception("Expected value in function argument list, found comma");
+                    }
+                }
+                else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+                {
+                    offset += next.InputLength;
+                    break;
+                }
+                else if(exprs.Count > 0)
+                {
+                    throw new Exception("Unexpected token inside function argument list");
+                }
+
+                var expr = ParseExpression(input, offset, context, flags, resolveReferences, true);
+                exprs.Add(expr);
+
+                offset += expr.FullText.Length;
+            }
+
+            og_offset = offset;
+
+            return exprs;
+        }
+
+        private static void ValidateFunctionCall(Context context, FunctionCall func)
+        {
+            var function = context.FindFunction(func.Name);
+            if (function == null)
+            {
+                throw new Exception($"Undefined reference to function \"{func.Name}\"");
+            }
+
+            if (function.Parameters.Count != func.Arguments.Count)
+            {
+                throw new Exception($"Wrong number of parameters to function \"{func.Name}\"");
+            }
+
+            for (int i = 0; i < function.Parameters.Count; ++i)
+            {
+                var expected = Expression.ColumnTypeToExpressionType(function.Parameters[i]);
+                var argExpression = func.Arguments[i];
+
+                if ((expected != Expression.ExpressionType.Null && expected != argExpression.Type) || argExpression.IsBoolean)
+                {
+                    throw new Exception($"Argument #{i} does not match the function definition");
+                }
+            }
+        }
+
+        private int ParseSubExpression(string input, int offset, Context context, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences, bool insideFunction)
         {
             bool lastWasOperator = true;
+            bool lastWasReference = false;
             bool first = true;
 
             var referenceFlags = new ReferenceFlags() { ResolveReferences = resolveReferences };
@@ -460,13 +550,39 @@ namespace wooby.Parsing
 
                     if (token.OperatorValue == Operator.ParenthesisLeft)
                     {
-                        offset = ParseSubExpression(input, offset, context, flags, expr, false, resolveReferences);
-                        lastWasOperator = false;
+                        if (lastWasReference)
+                        {
+                            // Function call
+                            expr.Nodes.RemoveAt(expr.Nodes.Count - 1);
+
+                            var lastReference = expr.Nodes.Last().ReferenceValue;
+                            if (!string.IsNullOrEmpty(lastReference.Table))
+                            {
+                                throw new Exception($"Undefined reference to function call \"{lastReference.Join()}\"");
+                            }
+
+                            var func = new FunctionCall() { Name = lastReference.Column, Arguments = ParseFunctionArguments(input, ref offset, context, resolveReferences) };
+
+                            expr.Nodes[^1] = new Expression.Node() { Kind = Expression.NodeKind.Function, FunctionCall = func };
+                            lastWasOperator = false;
+                        }
+                        else
+                        {
+                            offset = ParseSubExpression(input, offset, context, flags, expr, false, resolveReferences, insideFunction);
+                            lastWasOperator = false;
+                        }
                     }
                     else if (token.OperatorValue == Operator.ParenthesisRight)
                     {
-                        if (!root)
+                        if (!root || insideFunction)
                         {
+                            if (insideFunction)
+                            {
+                                offset -= token.InputLength;
+                            } else if (expr.Nodes[^2].Kind == Expression.NodeKind.Function)
+                            {
+                                expr.Nodes.RemoveAt(expr.Nodes.Count - 1);
+                            }
                             break;
                         }
                         else
@@ -474,9 +590,13 @@ namespace wooby.Parsing
                             throw new Exception("Missing left parenthesis");
                         }
                     }
+
+                    lastWasReference = false;
                 }
                 else if (token.Kind == TokenKind.LiteralNumber || token.Kind == TokenKind.LiteralString || token.Kind == TokenKind.Symbol)
                 {
+                    lastWasReference = false;
+
                     if (!lastWasOperator)
                     {
                         throw new Exception("Two subsequent values in expression");
@@ -507,6 +627,8 @@ namespace wooby.Parsing
 
                         expr.Nodes.Add(symNode);
                         offset += symbol.InputLength;
+
+                        lastWasReference = true;
                     }
                     else if (token.Kind == TokenKind.LiteralNumber)
                     {
@@ -540,19 +662,25 @@ namespace wooby.Parsing
             return offset;
         }
 
-        public Expression ParseExpression(string input, int offset, Context context, ExpressionFlags flags, bool resolveReferences)
+        public Expression ParseExpression(string input, int offset, Context context, ExpressionFlags flags, bool resolveReferences, bool insideFunction)
         {
             var expr = new Expression();
             int originalOffset = offset;
 
-            offset = ParseSubExpression(input, offset, context, flags, expr, true, resolveReferences);
+            offset = ParseSubExpression(input, offset, context, flags, expr, true, resolveReferences, insideFunction);
+            expr.FullText = input[originalOffset..offset];
 
-            if (expr.IsOnlyReference() && expr.Identifier == null)
+            if (expr.Identifier == null)
             {
-                expr.Identifier = expr.Nodes[0].ReferenceValue.Join();
+                if (expr.IsOnlyFunctionCall())
+                {
+                    expr.Identifier = expr.FullText.Trim();
+                } else if (expr.IsOnlyReference())
+                {
+                    expr.Identifier = expr.Nodes[0].ReferenceValue.Join();
+                }
             }
 
-            expr.FullText = input[originalOffset..offset];
             return expr;
         }
 
@@ -569,22 +697,27 @@ namespace wooby.Parsing
                 {
                     CurrentSources.Add(reference);
                 }
-            } else
+            }
+            else
             {
                 if (string.IsNullOrEmpty(reference.Table))
                 {
-                    var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => t.Columns.Find(c => c.Name == reference.Column) != null);
-
-                    if (results.Count() > 1)
+                    var function = context.FindFunction(reference.Column);
+                    if (function == null)
                     {
-                        throw new Exception($"Ambiguous column name \"{reference.Column}\"");
-                    }
-                    else if (!results.Any())
-                    {
-                        throw new Exception("Unresolved reference to column");
-                    }
+                        var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => t.Columns.Find(c => c.Name == reference.Column) != null);
 
-                    reference.Table = results.First().Name;
+                        if (results.Count() > 1)
+                        {
+                            throw new Exception($"Ambiguous column name \"{reference.Column}\"");
+                        }
+                        else if (!results.Any())
+                        {
+                            throw new Exception("Unresolved reference to column");
+                        }
+
+                        reference.Table = results.First().Name;
+                    }
                 }
                 else
                 {
@@ -625,7 +758,8 @@ namespace wooby.Parsing
                 if (token.Kind == TokenKind.None)
                 {
                     break;
-                } else if (token.Kind != TokenKind.Symbol && (token.Kind != TokenKind.Operator || token.OperatorValue != Operator.Asterisk))
+                }
+                else if (token.Kind != TokenKind.Symbol && (token.Kind != TokenKind.Operator || token.OperatorValue != Operator.Asterisk))
                 {
                     throw new Exception("Expected valid symbol for reference");
                 }

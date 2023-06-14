@@ -12,7 +12,9 @@ namespace wooby
     {
         String,
         Number,
-        Boolean
+        Boolean,
+        Date,
+        Null
     }
 
     public class ColumnMeta
@@ -33,17 +35,18 @@ namespace wooby
         public bool IsTemporary { get; set; }
     }
 
-    public class GlobalVariable
+    public class Function
     {
         public string Name { get; set; }
         public long Id { get; set; }
         public ColumnType Type { get; set; }
+        public List<ColumnType> Parameters { get; set; }
     }
 
     public class Context
     {
         public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
-        public List<GlobalVariable> Variables { get; private set; } = new List<GlobalVariable>();
+        public List<Function> Functions { get; private set; } = new List<Function>();
 
         public void AddColumn(ColumnMeta column, TableMeta target)
         {
@@ -86,15 +89,15 @@ namespace wooby
             return null;
         }
 
-        public GlobalVariable FindVariable(string Name)
+        public Function FindFunction(string Name)
         {
-            return Variables.Find(v => v.Name.ToUpper() == Name.ToUpper());
+            return Functions.Find(v => v.Name.ToUpper() == Name.ToUpper());
         }
 
         public bool IsReferenceValid(ColumnReference reference)
         {
             return FindColumn(reference) != null ||
-                (string.IsNullOrEmpty(reference.Table) && FindVariable(reference.Column) != null) ||
+                (string.IsNullOrEmpty(reference.Table) && FindFunction(reference.Column) != null) ||
                 (reference.Column == "*" && FindTable(reference) != null);
         }
     }

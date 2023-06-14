@@ -94,6 +94,7 @@ namespace wooby.Parsing
             String,
             Number,
             Reference,
+            Function,
             Null
         }
 
@@ -104,15 +105,20 @@ namespace wooby.Parsing
             public double NumberValue;
             public Operator OperatorValue;
             public ColumnReference ReferenceValue;
+            public FunctionCall FunctionCall;
 
             public override bool Equals(object obj)
             {
-                return obj is Node node &&
-                       Kind == node.Kind &&
+                if (obj is Node node)
+                {
+                    return Kind == node.Kind &&
                        StringValue == node.StringValue &&
                        NumberValue == node.NumberValue &&
                        OperatorValue == node.OperatorValue &&
-                       (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue));
+                       (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue)) &&
+                       (FunctionCall == node.FunctionCall || FunctionCall.Equals(node.FunctionCall));
+                }
+                else return false;
             }
 
             public override int GetHashCode()
@@ -131,7 +137,9 @@ namespace wooby.Parsing
             Unknown,
             Number,
             String,
-            Boolean
+            Boolean,
+            Null,
+            Date
         }
 
         public static ExpressionType ColumnTypeToExpressionType(ColumnType type)
@@ -141,6 +149,7 @@ namespace wooby.Parsing
                 ColumnType.Boolean => ExpressionType.Boolean,
                 ColumnType.Number => ExpressionType.Number,
                 ColumnType.String => ExpressionType.String,
+                ColumnType.Date => ExpressionType.Date,
                 _ => throw new NotImplementedException()
             };
         }
@@ -167,6 +176,11 @@ namespace wooby.Parsing
             return Nodes.Count == 1 && Nodes[0].Kind == NodeKind.Reference;
         }
 
+        public bool IsOnlyFunctionCall()
+        {
+            return Nodes.Count == 1 && Nodes[0].Kind == NodeKind.Function;
+        }
+
         public override bool Equals(object obj)
         {
             if (obj is Expression expression)
@@ -185,6 +199,24 @@ namespace wooby.Parsing
         }
     }
 
+    public class FunctionCall
+    {
+        public string Name { get; set; }
+        public List<Expression> Arguments { get; set; }
+
+        public override bool Equals(object obj)
+        {
+            return obj is FunctionCall call &&
+                   Name == call.Name &&
+                   Arguments.SequenceEqual(call.Arguments);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Name, Arguments);
+        }
+    }
+
     public class ColumnReference
     {
         public string Table { get; set; } = "";
@@ -195,7 +227,7 @@ namespace wooby.Parsing
         public override bool Equals(object obj)
         {
             return obj is ColumnReference reference &&
-                    Table == reference.Column &&
+                    Table == reference.Table &&
                     Column == reference.Column;
         }
 

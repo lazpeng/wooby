@@ -1,14 +1,8 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
-
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 using wooby;
-using wooby.Parsing;
 using wooby.Database;
+using wooby.Parsing;
 
 namespace Tests
 {
@@ -77,8 +71,10 @@ namespace Tests
 
             var input = "table.a";
 
-            var reference = new Parser().ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { ResolveReferences = true });
-            var expected = new ColumnReference() { Column = "a", Table = "table" };
+            var parser = new Parser();
+            parser.AddSource(new ColumnReference() { Table = "table" });
+            var reference = parser.ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { ResolveReferences = true });
+            var expected = new ColumnReference() { Column = "a", Table = "table", InputLength = input.Length };
 
             Assert.AreEqual(reference, expected);
         }
@@ -91,7 +87,9 @@ namespace Tests
 
             var input = "table";
 
-            var reference = new Parser().ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { TableOnly = true });
+            var parser = new Parser();
+            parser.AddSource(new ColumnReference() { Table = "table" });
+            var reference = parser.ParseReference(input, 0, ctx, new Parser.ReferenceFlags() { TableOnly = true });
             var expected = new ColumnReference() { Table = "table" };
 
             Assert.AreEqual(reference, expected);
@@ -143,7 +141,7 @@ namespace Tests
         {
             var input = "2+2";
 
-            var expr = new Parser().ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags(), true);
+            var expr = new Parser().ParseExpression(input, 0, new Context(), new Parser.ExpressionFlags(), true, false);
 
             var expected = new Expression()
             {
@@ -214,7 +212,7 @@ namespace Tests
                         FullText = "a",
                         Nodes = new List<Expression.Node>()
                         {
-                            new Expression.Node() 
+                            new Expression.Node()
                             {
                                 Kind = Expression.NodeKind.Reference,
                                 ReferenceValue = new ColumnReference() { Column = "a" }
@@ -250,9 +248,9 @@ namespace Tests
         }
 
         [TestMethod]
-        public void TestSelectWithVariableAndColumn()
+        public void TestSelectWithFunctionAndColumn()
         {
-            var input = "select CURRENT_DATE, a, table.b from table";
+            var input = "select CURRENT_DATE(), a, table.b from table";
 
             var ctx = new Machine().Initialize();
             var table = new TableMeta() { Name = "table" };
@@ -265,17 +263,18 @@ namespace Tests
 
             var expected = new SelectStatement()
             {
-                MainSource = new ColumnReference() { Table = "table" }
+                MainSource = new ColumnReference() { Table = "table", Identifier = "table", InputLength = 6 },
+                OriginalText = input
             };
 
             expected.OutputColumns.Add(new Expression()
             {
-                Type = Expression.ExpressionType.String,
-                FullText = "CURRENT_DATE",
-                Identifier = "CURRENT_DATE",
+                Type = Expression.ExpressionType.Date,
+                FullText = "CURRENT_DATE()",
+                Identifier = "CURRENT_DATE()",
                 Nodes = new List<Expression.Node>
                 {
-                    new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = new ColumnReference() { Column = "CURRENT_DATE" } }
+                    new Expression.Node() { Kind = Expression.NodeKind.Function, FunctionCall = new FunctionCall() { Name = "CURRENT_DATE", Arguments = new List<Expression>() } }
                 }
             });
 
@@ -314,7 +313,7 @@ namespace Tests
 
             var input = "NULL";
 
-            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true);
+            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true, false);
 
             Assert.AreEqual(result.Type, Expression.ExpressionType.Unknown);
             Assert.IsTrue(result.Nodes.Count == 1);
@@ -331,7 +330,9 @@ namespace Tests
             ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
-            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags() { IdentifierAllowed = true }, true);
+            var parser = new Parser();
+            parser.AddSource(new ColumnReference() { Table = "table" });
+            var result = parser.ParseExpression(input, 0, ctx, new Parser.ExpressionFlags() { IdentifierAllowed = true }, true, false);
 
             Assert.IsNotNull(result.Identifier);
             Assert.AreEqual(result.Identifier, "name");
@@ -347,9 +348,42 @@ namespace Tests
             ctx.AddColumn(new ColumnMeta() { Name = "a", Type = ColumnType.Number }, table);
             ctx.AddTable(table);
 
-            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true);
+            var parser = new Parser();
+            parser.AddSource(new ColumnReference() { Table = "table" });
+            var result = parser.ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true, false);
 
             Assert.IsTrue(result.IsOnlyReference());
+        }
+
+        [TestMethod]
+        public void TestFunctionCall()
+        {
+            var input = "CURRENT_DATE()";
+
+            var ctx = new Machine().Initialize();
+
+            var result = new Parser().ParseExpression(input, 0, ctx, new Parser.ExpressionFlags(), true, false);
+            var expected = new Expression()
+            {
+                FullText = input,
+                Identifier = input,
+                IsBoolean = false,
+                Type = Expression.ExpressionType.Date,
+                Nodes = new List<Expression.Node>()
+                {
+                    new Expression.Node()
+                    {
+                        Kind = Expression.NodeKind.Function,
+                        FunctionCall = new FunctionCall()
+                        {
+                            Name = "CURRENT_DATE",
+                            Arguments = new List<Expression>()
+                        }
+                    }
+                }
+            };
+
+            Assert.AreEqual(result, expected);
         }
     }
 }
