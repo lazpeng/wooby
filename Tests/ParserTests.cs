@@ -1,5 +1,6 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections.Generic;
+using System.Linq;
 using wooby;
 using wooby.Database;
 using wooby.Parsing;
@@ -203,19 +204,22 @@ namespace Tests
             var expected = new SelectStatement()
             {
                 MainSource = new ColumnReference() { Table = "table" },
-                OutputOrder = new Ordering()
+                OutputOrder = new List<Ordering>()
                 {
-                    Kind = OrderingKind.Descending,
-                    OrderExpression = new Expression()
+                    new Ordering()
                     {
-                        Type = Expression.ExpressionType.Number,
-                        FullText = "a",
-                        Nodes = new List<Expression.Node>()
+                        Kind = OrderingKind.Descending,
+                        OrderExpression = new Expression()
                         {
-                            new Expression.Node()
+                            Type = Expression.ExpressionType.Number,
+                            FullText = "a",
+                            Nodes = new List<Expression.Node>()
                             {
-                                Kind = Expression.NodeKind.Reference,
-                                ReferenceValue = new ColumnReference() { Column = "a" }
+                                new Expression.Node()
+                                {
+                                    Kind = Expression.NodeKind.Reference,
+                                    ReferenceValue = new ColumnReference() { Column = "a" }
+                                }
                             }
                         }
                     }
@@ -384,6 +388,72 @@ namespace Tests
             };
 
             Assert.AreEqual(result, expected);
+        }
+
+        [TestMethod]
+        public void TestOrderByMultipleClauses()
+        {
+            var input = "SELECT * FROM a ORDER BY b desc, c";
+
+            var ctx = new Machine().Initialize();
+            var table = new TableMeta() { Name = "a" };
+            ctx.AddColumn(new ColumnMeta() { Name = "b", Type = ColumnType.Number }, table);
+            ctx.AddColumn(new ColumnMeta() { Name = "c", Type = ColumnType.Number }, table);
+            ctx.AddTable(table);
+
+            var result = new Parser().ParseSelect(input, 0, ctx);
+
+            var expected = new List<Ordering>()
+            {
+                new Ordering()
+                {
+                    Kind = OrderingKind.Descending,
+                    OrderExpression = new Expression()
+                    {
+                        FullText = " b",
+                        Identifier = "a.b",
+                        IsBoolean = false,
+                        Type = Expression.ExpressionType.Number,
+                        Nodes = new List<Expression.Node>()
+                        {
+                            new Expression.Node()
+                            {
+                                Kind = Expression.NodeKind.Reference,
+                                ReferenceValue = new ColumnReference()
+                                {
+                                    Column = "b",
+                                    Table = "a"
+                                }
+                            }
+                        }
+                    }
+                },
+                new Ordering()
+                {
+                    Kind = OrderingKind.Ascending,
+                    OrderExpression = new Expression()
+                    {
+                        FullText = " c",
+                        Identifier = "a.c",
+                        IsBoolean = false,
+                        Type = Expression.ExpressionType.Number,
+                        Nodes = new List<Expression.Node>()
+                        {
+                            new Expression.Node()
+                            {
+                                Kind = Expression.NodeKind.Reference,
+                                ReferenceValue = new ColumnReference()
+                                {
+                                    Column = "c",
+                                    Table = "a"
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            Assert.IsTrue(result.OutputOrder.SequenceEqual(expected));
         }
     }
 }

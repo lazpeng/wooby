@@ -35,6 +35,6 @@ My "roadmap" is as follows:
 ## v0.5
 * Saving and loading the database to disk, at least an initial implementation using JSON or something simple to get the persistence working, and then switch backends later
 
-### Current stage: v0.1
+### Current stage: v0.2
 
 I'll add more stuff as the project advances

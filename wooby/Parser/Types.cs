@@ -284,9 +284,11 @@ namespace wooby.Parsing
 
         public override bool Equals(object obj)
         {
-            return obj is Ordering ordering &&
-                   (OrderExpression == ordering.OrderExpression || OrderExpression.Equals(OrderExpression)) &&
+            if (obj is Ordering ordering)
+            {
+                return (OrderExpression == ordering.OrderExpression || OrderExpression.Equals(OrderExpression)) &&
                    Kind == ordering.Kind;
+            } else return false;
         }
 
         public override int GetHashCode()
@@ -306,7 +308,7 @@ namespace wooby.Parsing
         public List<Expression> OutputColumns { get; private set; } = new List<Expression>();
         public ColumnReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
-        public Ordering OutputOrder { get; set; }
+        public List<Ordering> OutputOrder { get; set; } = new List<Ordering>();
 
         public override bool Equals(object obj)
         {
@@ -317,7 +319,7 @@ namespace wooby.Parsing
                    OutputColumns.SequenceEqual(statement.OutputColumns) &&
                    (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
                    (FilterConditions == statement.FilterConditions || FilterConditions.Equals(statement.FilterConditions)) &&
-                   (OutputOrder == statement.OutputOrder || OutputOrder.Equals(statement.OutputOrder));
+                   OutputOrder.SequenceEqual(statement.OutputOrder);
             }
             else return false;
         }

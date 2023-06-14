@@ -146,7 +146,7 @@ namespace wooby.Database
             return i;
         }
 
-        public static void CompileExpression(SelectStatement command, Expression expr, Context context, List<Instruction> target, bool pushToOutput)
+        public static void CompileExpression(SelectStatement command, Expression expr, Context context, List<Instruction> target, PushResultKind push)
         {
             if (expr.IsOnlyReference())
             {
@@ -176,9 +176,26 @@ namespace wooby.Database
                     else
                     {
                         var column = context.FindColumn(reference);
+
                         target.Add(new Instruction()
                         {
-                            OpCode = OpCode.PushColumnToOutput,
+                            OpCode = OpCode.PushColumn,
+                            Arg1 = column.Parent.Id,
+                            Arg2 = column.Id
+                        });
+
+                        OpCode op;
+                        if (push == PushResultKind.ToOrdering)
+                        {
+                            op = OpCode.PushStackTopToOrdering;
+                        } else
+                        {
+                            op = OpCode.PushStackTopToOutput;
+                        }
+
+                        target.Add(new Instruction()
+                        {
+                            OpCode = op,
                             Arg1 = column.Parent.Id,
                             Arg2 = column.Id
                         });
@@ -202,9 +219,12 @@ namespace wooby.Database
             else
             {
                 CompileSubExpression(0, expr, context, target);
-                if (pushToOutput)
+                if (push == PushResultKind.ToOutput)
                 {
                     target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOutput });
+                } else if (push == PushResultKind.ToOrdering)
+                {
+                    target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOrdering });
                 }
             }
         }

@@ -97,15 +97,42 @@ namespace wooby.Parsing
 
                         offset += next.InputLength;
 
-                        var orderExpr = ParseExpression(input, offset, context, exprFlags, true, false);
-                        command.OutputOrder = new Ordering { OrderExpression = orderExpr };
-                        offset += orderExpr.FullText.Length;
+                        bool firstOrder = true;
 
-                        next = NextToken(input, offset);
-                        if (next.Kind == TokenKind.Keyword && (next.KeywordValue == Keyword.Asc || next.KeywordValue == Keyword.Desc))
+                        while (true)
                         {
-                            command.OutputOrder.Kind = next.KeywordValue == Keyword.Asc ? OrderingKind.Ascending : OrderingKind.Descending;
-                            offset += next.InputLength;
+                            next = NextToken(input, offset);
+
+                            if (next.Kind == TokenKind.Comma)
+                            {
+                                if (!firstOrder)
+                                {
+                                    offset += next.InputLength;
+                                } else
+                                {
+                                    throw new Exception("Order by clause cannot start with a comma");
+                                }
+                            } else if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
+                            {
+                                break;
+                            }
+
+                            firstOrder = false;
+
+                            var ordering = new Ordering
+                            {
+                                OrderExpression = ParseExpression(input, offset, context, exprFlags, true, false)
+                            };
+                            offset += ordering.OrderExpression.FullText.Length;
+
+                            next = NextToken(input, offset);
+                            if (next.Kind == TokenKind.Keyword && (next.KeywordValue == Keyword.Asc || next.KeywordValue == Keyword.Desc))
+                            {
+                                ordering.Kind = next.KeywordValue == Keyword.Asc ? OrderingKind.Ascending : OrderingKind.Descending;
+                                offset += next.InputLength;
+                            }
+
+                            command.OutputOrder.Add(ordering);
                         }
                     }
                 }

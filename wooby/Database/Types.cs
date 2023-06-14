@@ -50,6 +50,37 @@ namespace wooby.Database
         public List<List<ColumnValue>> Rows { get; set; } = new List<List<ColumnValue>>();
     }
 
+    // Data for knowing how to order output rows
+    public class RowOrderData
+    {
+        public List<ColumnValue> Values { get; set; } = new List<ColumnValue>();
+        public int RowIndex { get; set; }
+    }
+
+    public class RowOrderingIntermediate
+    {
+        public ColumnValue DistinctValue { get; set; }
+        public List<int> MatchingRows { get; set; }
+        public List<RowOrderingIntermediate> SubOrdering { get; set; }
+
+        public void Collect(ExecutionContext exec, List<List<ColumnValue>> target)
+        {
+            if (MatchingRows != null && MatchingRows.Count > 0)
+            {
+                foreach (var idx in MatchingRows)
+                {
+                    target.Add(exec.QueryOutput.Rows[idx]);
+                }
+            } else
+            {
+                foreach (var sub in SubOrdering)
+                {
+                    sub.Collect(exec, target);
+                }
+            }
+        }
+    }
+
     public abstract class Function
     {
         public abstract ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments);
@@ -64,7 +95,6 @@ namespace wooby.Database
         }
     }
 
-
     public interface ITableDataProvider
     {
         void Reset();
@@ -77,7 +107,7 @@ namespace wooby.Database
 
     public enum OpCode : int
     {
-        PushColumnToOutput,
+        PushColumnToOutput = 0,
         CallFunction,
         PushNumber,
         PushString,
@@ -99,6 +129,14 @@ namespace wooby.Database
         AuxMoreEqNumber,
         AuxEqualNumber,
         PushStackTopToOutput,
+        PushStackTopToOrdering,
+    }
+
+    public enum PushResultKind
+    {
+        None,
+        ToOutput,
+        ToOrdering
     }
 
     public class Instruction
@@ -125,7 +163,7 @@ namespace wooby.Database
         public TableData MainSource { get; set; }
         public Stack<long> Checkpoints { get; set; } = new Stack<long>();
         public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
-        public bool LastComparisionResult { get; set; } = false;
+        public List<RowOrderData> OrderingResults { get; set; } = new List<RowOrderData>();
 
         public ExecutionContext(Context ctx)
         {
