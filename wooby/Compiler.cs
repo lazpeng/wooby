@@ -252,6 +252,9 @@ namespace wooby
 
     public class Compiler
     {
-
+        public List<Instruction> CompileCommand(Command command, Context context)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

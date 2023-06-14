@@ -41,7 +41,6 @@ namespace wooby
     {
         public string Name { get; set; }
         public long Id { get; set; }
-        public bool IsReal { get; set; }
         public ColumnType Type { get; set; }
     }
 
