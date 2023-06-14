@@ -11,8 +11,6 @@ namespace wooby.Database
 {
     public class Machine
     {
-        private List<Function> Functions { get; set; } = new();
-        private List<TableData> Tables { get; set; }
         public Context Context { get; private set; }
 
         private static readonly List<Operator> BooleanOperators = new List<Operator>
@@ -58,49 +56,38 @@ namespace wooby.Database
             for (int id = 0; id < types.Count; id++)
             {
                 var func = Activator.CreateInstance(types[id], new object[] {id}) as Function;
-                Functions.Add(func);
                 Context.AddFunction(func);
             }
         }
 
         private void InitializeTables()
         {
-            Tables = new List<TableData>();
-
-            Context.Tables.RemoveAll(table => !table.IsReal);
-
-            foreach (var table in Context.Tables)
-            {
-                RegisterTable(table, PersistenceBackendHelper.GetTableDataProvider(Context));
-            }
+            Context.ResetNotReal();
 
             var dualMeta = new TableMeta()
             {
                 Name = "dual",
                 Columns = new List<ColumnMeta>(),
                 IsReal = false,
-                IsTemporary = false
+                IsTemporary = false,
+                DataProvider = new Dual_DataProvider()
             };
-            RegisterTable(dualMeta, new Dual_DataProvider());
+            Context.AddTable(dualMeta);
 
-            var loveliveMeta = new TableMeta() {Name = "lovelive", IsReal = false}
+            var loveliveMeta = new TableMeta() {Name = "lovelive", IsReal = false, DataProvider = new LoveLive_DataProvider()}
                 .AddColumn("id", ColumnType.Number)
                 .AddColumn("parent_id", ColumnType.Number)
                 .AddColumn("nome", ColumnType.String)
                 .AddColumn("ano", ColumnType.Number)
                 .AddColumn("integrantes", ColumnType.Number);
-            RegisterTable(loveliveMeta, new LoveLive_DataProvider());
+            Context.AddTable(loveliveMeta);
         }
 
         private void RegisterTable(TableMeta Meta, ITableDataProvider Provider)
         {
-            if (Context.Tables.Find(t => t.Name == Meta.Name) == null)
-            {
-                Context.AddTable(Meta);
-            }
-
+            Meta.DataProvider = Provider;
             Provider.Initialize(Context, Meta);
-            Tables.Add(new TableData {Meta = Meta, DataProvider = Provider});
+            Context.AddTable(Meta);
         }
 
         private static void CheckOutputRows(ExecutionContext context)
@@ -1131,11 +1118,11 @@ namespace wooby.Database
 
         private void SetupMainSource(ExecutionContext exec, long tableId)
         {
-            var sourceData = Tables.Find(t => t.Meta.Id == tableId);
+            var sourceData = Context.FindTable(tableId);
             exec.MainSource = new ExecutionDataSource()
             {
-                Meta = sourceData.Meta,
-                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Meta.Columns.Count)
+                Meta = sourceData,
+                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Columns.Count)
             };
         }
 

@@ -1,7 +1,9 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 using wooby.Database;
+using wooby.Database.Persistence;
 using wooby.Parsing;
 
 namespace wooby
@@ -43,6 +45,7 @@ namespace wooby
         public List<ColumnMeta> Columns { get; set; } = new List<ColumnMeta>();
         public bool IsReal { get; set; }
         public bool IsTemporary { get; set; }
+        public ITableDataProvider DataProvider { get; set; }
 
         public TableMeta AddColumn(string ColumnName, ColumnType Type, ColumnFlags flags = null)
         {
@@ -54,8 +57,19 @@ namespace wooby
 
     public class Context
     {
-        public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
-        public List<Function> Functions { get; private set; } = new ();
+        private readonly List<Function> _Functions = new ();
+        private readonly List<TableMeta> _Tables = new ();
+        
+        public IReadOnlyList<Function> Functions
+        {
+            get { return _Functions; }
+        }
+
+        public IReadOnlyList<TableMeta> Tables
+        {
+            get { return _Tables; }
+        }
+        
         public string DatabaseFilename { get; set; }
         public ContextSourceType DatabaseSource { get; set; }
         public object CustomSourceData { get; set; }
@@ -63,23 +77,44 @@ namespace wooby
 
         public void AddTable(TableMeta table)
         {
+            if (Tables.Any(t => t.Name == table.Name))
+            {
+                throw new Exception("Duplicate table");
+            }
+
+            if (table.DataProvider == null)
+            {
+                table.DataProvider = PersistenceBackendHelper.GetTableDataProvider(this);
+            }
+            table.DataProvider.Initialize(this, table);
+            
             long id = 0;
             if (Tables.Count > 0)
             {
                 id = Tables.Max(t => t.Id) + 1;
             }
             table.Id = id;
-            Tables.Add(table);
+            _Tables.Add(table);
+        }
+
+        public void ResetNotReal()
+        {
+            _Tables.RemoveAll(t => !t.IsReal);
         }
 
         public void AddFunction(Function v)
         {
-            Functions.Add(v);
+            _Functions.Add(v);
         }
 
         public TableMeta FindTable(ColumnReference reference)
         {
-            return Tables.Find(t => t.Name.ToUpper() == reference.Table.ToUpper());
+            return _Tables.Find(t => t.Name.ToUpper() == reference.Table.ToUpper());
+        }
+
+        public TableMeta FindTable(long Id)
+        {
+            return _Tables.Find(t => t.Id == Id);
         }
 
         public ColumnMeta FindColumn(ColumnReference reference)
@@ -96,7 +131,7 @@ namespace wooby
 
         public Function FindFunction(string Name)
         {
-            return Functions.Find(v => v.Name.ToUpper() == Name.ToUpper());
+            return _Functions.Find(v => v.Name.ToUpper() == Name.ToUpper());
         }
     }
 }
