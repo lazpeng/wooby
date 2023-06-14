@@ -22,6 +22,7 @@ _Removed the roadmap. Instead I'll list below what's already "working" and what 
     - [x] Single value subselect as expression
     - [ ] Expandable type system
     - [ ] More basic types
+    - [ ] Type promotion/casting (e.g. CURRENT_DATE() - 30)
 - [ ] Functions
     - [x] Basic functions
     - [x] Aggregate functions
@@ -41,6 +42,7 @@ _Removed the roadmap. Instead I'll list below what's already "working" and what 
     - [ ] INNER/OUTER JOIN
     - [ ] Maybe CROSS and SELF JOIN?
 - [ ] HAVING clause
+- [ ] Meta tables with info about the schema and database
 - [ ] (big one) Data persistence and querying of data from disk
 - [ ] System.Data interfaces implementation
 
