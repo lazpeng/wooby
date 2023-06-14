@@ -73,7 +73,7 @@ namespace wooby.Parsing
             SkipNextToken(input, ref offset);
             var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true, SingleValueSubSelectAllowed = true, AllowAggregateFunctions = true };
 
-            Token next = null;
+            Token next;
 
             do
             {
@@ -96,6 +96,11 @@ namespace wooby.Parsing
                     offset += next.InputLength;
                 }
 
+                next = NextToken(input, offset);
+                if (Expression.IsTokenInvalidForExpressionStart(next))
+                {
+                    throw new Exception("Unrecognized token at start of expression in output definition");
+                }
                 var expr = ParseExpression(input, offset, context, statement, exprFlags, false, false);
 
                 if (statement.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
