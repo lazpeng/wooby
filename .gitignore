@@ -1,0 +1,12 @@
+.vs/
+bin/
+obj/
+*.user
+*.exe
+*.dll
+*.pdb
+*.obj
+*.o
+*.lib
+*.a
+*.dylib
