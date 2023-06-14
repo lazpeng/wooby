@@ -18,7 +18,10 @@ namespace wooby
         Power,
         LessThan,
         MoreThan,
+        LessEqual,
+        MoreEqual,
         Equal,
+        NotEqual,
     }
 
     public enum Keyword
@@ -296,6 +299,12 @@ namespace wooby
                 Operator.Plus => OpCode.Sum,
                 Operator.Minus => OpCode.Sub,
                 Operator.ForwardSlash => OpCode.Div,
+                Operator.Equal => OpCode.Eq,
+                Operator.NotEqual => OpCode.NEq,
+                Operator.LessThan => OpCode.Less,
+                Operator.MoreThan => OpCode.More,
+                Operator.LessEqual => OpCode.LessEq,
+                Operator.MoreEqual => OpCode.MoreEq,
                 _ => throw new ArgumentException()
             };
         }
@@ -354,7 +363,7 @@ namespace wooby
             return i;
         }
 
-        private static void CompileExpression(SelectCommand command, Expression expr, Context context, List<Instruction> target)
+        private static void CompileExpression(SelectCommand command, Expression expr, Context context, List<Instruction> target, bool pushToOutput)
         {
             if (expr.IsOnlyReference())
             {
@@ -411,7 +420,10 @@ namespace wooby
             {
                 CompileSubExpression(0, expr, context, target);
 
-                target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOutput });
+                if (pushToOutput)
+                {
+                    target.Add(new Instruction() { OpCode = OpCode.PushStackTopToOutput });
+                }
             }
         }
 
@@ -475,14 +487,25 @@ namespace wooby
 
             foreach (var expr in command.OutputColumns)
             {
-                CompileExpression(command, expr, context, target);
+                CompileExpression(command, expr, context, target, true);
+            }
+
+            if (command.FilterConditions != null)
+            {
+                if (!command.FilterConditions.IsBoolean)
+                {
+                    throw new InvalidOperationException("Filter in WHERE clause does not result in TRUE/FALSE");
+                }
+
+                CompileExpression(command, command.FilterConditions, context, target, false);
+                target.Add(new Instruction() { OpCode = OpCode.SkipToNextAndPopIfNotTrue });
             }
 
             target.Add(new Instruction() { OpCode = OpCode.CheckpointEnd });
 
-            // TODO Filter conditions
-
             // TODO Ordering
+
+            target.Add(new Instruction() { OpCode = OpCode.ResetAllProviders });
         }
 
         public static List<Instruction> CompileCommand(Command command, Context context)

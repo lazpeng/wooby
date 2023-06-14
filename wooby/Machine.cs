@@ -10,6 +10,7 @@ namespace wooby
     {
         Text,
         Number,
+        Boolean,
         Null,
     }
 
@@ -18,6 +19,7 @@ namespace wooby
         public ValueKind Kind { get; set; }
         public string Text { get; set; }
         public double Number { get; set; }
+        public bool Boolean { get; set; }
 
         public string PrettyPrint()
         {
@@ -26,6 +28,7 @@ namespace wooby
                 ValueKind.Null => "",
                 ValueKind.Number => $"{Number}",
                 ValueKind.Text => Text,
+                ValueKind.Boolean => Boolean ? "TRUE" : "FALSE",
                 _ => ""
             };
         }
@@ -224,7 +227,7 @@ namespace wooby
         PushColumnToOutput,
         PushVariableToOutput,
         TrySeekElseSkip,
-        SkipToNextIf,
+        SkipToNextAndPopIfNotTrue,
         SortByOutputAsc,
         SortByOutputDesc,
         AddOutputColumnDefinition,
@@ -237,12 +240,19 @@ namespace wooby
         Div,
         Mul,
         Concat,
+        Eq,
+        NEq,
+        LessEq,
+        Less,
+        MoreEq,
+        More,
         AuxLessNumber,
         AuxLessEqNumber,
         AuxMoreNumber,
         AuxMoreEqNumber,
         AuxEqualNumber,
         PushStackTopToOutput,
+        ResetAllProviders,
     }
 
     public class Instruction
@@ -356,7 +366,7 @@ namespace wooby
                 }
             } while (true);
 
-            return current;
+            return current - 1;
         }
 
         private static void PushToOutput(ExecutionContext context, ColumnValue value)
@@ -369,10 +379,26 @@ namespace wooby
             context.QueryOutput.Rows.Last().Add(value);
         }
 
+        private static void AssertValuesNotBoolean(ColumnValue a)
+        {
+            if (a.Kind == ValueKind.Boolean)
+            {
+                throw new ArgumentException("One of the arguments to the expression is a boolean value");
+            }
+        }
+
+        private static void AssertValuesNotBoolean(ColumnValue a, ColumnValue b)
+        {
+            AssertValuesNotBoolean(a);
+            AssertValuesNotBoolean(b);
+        }
+
         private static ColumnValue Sum(ExecutionContext context)
         {
             var right = context.Stack.Pop();
             var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
 
             if (left.Kind == ValueKind.Number)
             {
@@ -391,10 +417,161 @@ namespace wooby
             throw new ArgumentException();
         }
 
+
+        private static ColumnValue Equal(ColumnValue left, ColumnValue right)
+        {
+            AssertValuesNotBoolean(left, right);
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                return new ColumnValue() { Boolean = lnum == rnum, Kind = ValueKind.Boolean };
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                var lstr = left.Text;
+                var rstr = right.Text;
+                return new ColumnValue() { Boolean = lstr == rstr, Kind = ValueKind.Boolean };
+            }
+
+            throw new ArgumentException();
+        }
+
+        private static ColumnValue Equal(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            return Equal(left, right);
+        }
+
+        private static ColumnValue NotEqual(ExecutionContext context)
+        {
+            var result = Equal(context);
+
+            if (result.Kind == ValueKind.Boolean)
+            {
+                result.Boolean = !result.Boolean;
+            }
+            else
+            {
+                result.Kind = ValueKind.Boolean;
+                result.Boolean = true;
+            }
+
+            return result;
+        }
+
+        private static ColumnValue Less(ExecutionContext context, bool orEqual)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
+
+            var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                result.Boolean = lnum < rnum;
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                throw new ArgumentException("Invalid operation between strings");
+            }
+
+            if (!result.Boolean && orEqual)
+            {
+                result = Equal(left, right);
+            }
+
+            return result;
+        }
+
+        private static ColumnValue More(ExecutionContext context, bool orEqual)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
+
+            var result = new ColumnValue() { Boolean = false, Kind = ValueKind.Boolean };
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                result.Boolean = lnum > rnum;
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                throw new ArgumentException("Invalid operation between strings");
+            }
+
+            if (!result.Boolean && orEqual)
+            {
+                result = Equal(left, right);
+            }
+
+            return result;
+        }
+
+        private static ColumnValue Divide(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                return new ColumnValue() { Number = lnum / rnum, Kind = ValueKind.Number };
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                throw new Exception("Invalid operation between strings");
+            }
+
+            throw new ArgumentException();
+        }
+
+        private static ColumnValue Multiply(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                return new ColumnValue() { Number = lnum * rnum, Kind = ValueKind.Number };
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                throw new ArgumentException("Invalid operation between strings");
+            }
+
+            throw new ArgumentException();
+        }
+
         private static ColumnValue Sub(ExecutionContext context)
         {
             var right = context.Stack.Pop();
             var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
 
             if (left.Kind == ValueKind.Number)
             {
@@ -468,15 +645,43 @@ namespace wooby
                     case OpCode.Sum:
                         exec.Stack.Push(Sum(exec));
                         break;
-                        case OpCode.Sub:
+                    case OpCode.Sub:
                         exec.Stack.Push(Sub(exec));
                         break;
-                        case OpCode.Div:
-
-                            break;
-                        case OpCode.Mul:
-
-                            break;
+                    case OpCode.Div:
+                        exec.Stack.Push(Divide(exec));
+                        break;
+                    case OpCode.Mul:
+                        exec.Stack.Push(Multiply(exec));
+                        break;
+                    case OpCode.SkipToNextAndPopIfNotTrue:
+                        if (exec.Stack.TryPop(out ColumnValue value))
+                        {
+                            if (value.Kind == ValueKind.Boolean && !value.Boolean)
+                            {
+                                exec.QueryOutput.Rows.RemoveAt(exec.QueryOutput.Rows.Count - 1);
+                                i = (int)exec.Checkpoints.Peek();
+                            }
+                        }
+                        break;
+                    case OpCode.Eq:
+                        exec.Stack.Push(Equal(exec));
+                        break;
+                    case OpCode.NEq:
+                        exec.Stack.Push(NotEqual(exec));
+                        break;
+                    case OpCode.Less:
+                        exec.Stack.Push(Less(exec, false));
+                        break;
+                    case OpCode.More:
+                        exec.Stack.Push(More(exec, false));
+                        break;
+                    case OpCode.LessEq:
+                        exec.Stack.Push(Less(exec, true));
+                        break;
+                    case OpCode.MoreEq:
+                        exec.Stack.Push(More(exec, true));
+                        break;
                     case OpCode.PushStackTopToOutput:
                         PushToOutput(exec, exec.Stack.Pop());
                         break;
@@ -485,6 +690,9 @@ namespace wooby
                         break;
                     case OpCode.PushVariable:
                         exec.Stack.Push(Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
+                        break;
+                    case OpCode.ResetAllProviders:
+                        exec.MainSource.DataProvider.Reset();
                         break;
                     default:
                         throw new Exception("Unrecognized opcode");

@@ -28,7 +28,7 @@ namespace wooby
                 columns[i] = col;
             }
 
-            var maxLen = columns[0].Rows.Count().ToString().Length;
+            var maxLen = columns[0].Rows.Count.ToString().Length;
 
             for (int i = -1; i < columns[0].Rows.Count; ++i)
             {
