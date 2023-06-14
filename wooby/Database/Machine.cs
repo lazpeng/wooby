@@ -84,6 +84,16 @@ namespace wooby.Database
             context.QueryOutput.Rows.Last().Add(value);
         }
 
+        private static void PushToGrouping(ExecutionContext context, ColumnValue value)
+        {
+            if (context.GroupingResults.Count == 0)
+            {
+                throw new InvalidOperationException("Query ordering has no rows to push to");
+            }
+
+            context.GroupingResults.Last().Values.Add(value);
+        }
+
         private static void PushToOrdering(ExecutionContext context, ColumnValue value)
         {
             if (context.OrderingResults.Count == 0)
@@ -442,7 +452,7 @@ namespace wooby.Database
             var result = new List<RowOrderingIntermediate>();
             var ascending = query.OutputOrder[colIndex].Kind == OrderingKind.Ascending;
 
-            IEnumerable<RowOrderData> input;
+            IEnumerable<RowMetaData> input;
             if (indexes != null && indexes.Count > 0)
             {
                 input = exec.OrderingResults.Where(r => indexes.Contains(r.RowIndex));
@@ -509,6 +519,11 @@ namespace wooby.Database
 
                 exec.QueryOutput.Rows = newResult;
             }
+        }
+
+        private static void GroupRows(ExecutionContext exec, SelectStatement query)
+        {
+
         }
 
         private void ExecuteCreate(ExecutionContext exec, CreateStatement statement)
@@ -665,9 +680,6 @@ namespace wooby.Database
             foreach (var output in query.OutputColumns)
             {
                 Compiler.CompileExpression(query, output, Context, outputExpressions, PushResultKind.ToOutput);
-
-                // Prepare the output columns
-
                 PrepareQueryOutput(exec, query, output);
             }
 
@@ -683,7 +695,11 @@ namespace wooby.Database
                 Compiler.CompileExpression(query, ord.OrderExpression, Context, ordering, PushResultKind.ToOrdering);
             }
 
-            // Select main source
+            var grouping = new List<Instruction>();
+            foreach (var group in query.Grouping)
+            {
+                Compiler.CompileExpression(query, new Expression { Nodes = { new Expression.Node { Kind = Expression.NodeKind.Reference, ReferenceValue = group } } }, Context, grouping, PushResultKind.ToGrouping);
+            }
 
             SetupMainSource(exec, query.MainSource);
 
@@ -694,11 +710,9 @@ namespace wooby.Database
             {
                 while (exec.MainSource.DataProvider.SeekNext())
                 {
-                    // Add output rows so we can use ROWNUM in the WHERE clause
-                    exec.QueryOutput.Rows.Add(new List<ColumnValue>());
-
                     if (FilterIsTrueForCurrentRow(exec, filter))
                     {
+                        exec.QueryOutput.Rows.Add(new List<ColumnValue>());
                         filteredRows.Add(exec.MainSource.DataProvider.CurrentRowId());
                     }
                 };
@@ -713,23 +727,36 @@ namespace wooby.Database
                 if (query.FilterConditions != null)
                 {
                     if (filterIndex >= filteredRows.Count)
+                    {
                         break;
+                    }
                     else
+                    {
                         exec.MainSource.DataProvider.Seek(filteredRows[filterIndex++]);
+                    }
                 }
                 else if (!exec.MainSource.DataProvider.SeekNext())
+                {
                     break;
+                }
 
                 var rowIndex = exec.QueryOutput.Rows.Count;
                 // First get the actual outputs from the query
                 exec.QueryOutput.Rows.Add(new List<ColumnValue>());
                 Execute(outputExpressions, exec);
                 // Fetch the required results for the ordering
-                exec.OrderingResults.Add(new RowOrderData() { RowIndex = rowIndex });
+                exec.OrderingResults.Add(new RowMetaData() { RowIndex = rowIndex });
                 Execute(ordering, exec);
+                // Fetch results to grouping
+                exec.GroupingResults.Add(new RowMetaData() { RowIndex = rowIndex });
+                Execute(grouping, exec);
             }
 
+            // Perform ordering on output rows
             OrderOutputRows(exec, query);
+            // Rebuild the output rows considering the grouping
+            GroupRows(exec, query);
+            // Final check so we don't return an empty row when no rows were found
             CheckOutputRows(exec);
         }
 
@@ -879,6 +906,9 @@ namespace wooby.Database
                         break;
                     case OpCode.PushStackTopToOutput:
                         PushToOutput(exec, exec.Stack.Pop());
+                        break;
+                    case OpCode.PushStackTopToGrouping:
+                        PushToGrouping(exec, exec.Stack.Pop());
                         break;
                     case OpCode.PushStackTopToOrdering:
                         PushToOrdering(exec, exec.Stack.Pop());

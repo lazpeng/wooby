@@ -47,7 +47,7 @@ namespace wooby.Database
 
         public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> _)
         {
-            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.QueryOutput.Rows.Count };
+            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.QueryOutput.Rows.Count + 1 };
         }
     }
 

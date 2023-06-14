@@ -214,9 +214,12 @@ namespace wooby.Database
                         {
                             op = OpCode.PushStackTopToOrdering;
                         }
-                        else
+                        else if (push == PushResultKind.ToOutput)
                         {
                             op = OpCode.PushStackTopToOutput;
+                        } else if (push == PushResultKind.ToGrouping)
+                        {
+                            op = OpCode.PushStackTopToGrouping;
                         }
 
                         target.Add(new Instruction()

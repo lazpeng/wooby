@@ -23,6 +23,7 @@ namespace wooby.Parsing
             { "ASC", Keyword.Asc },
             { "DESC", Keyword.Desc },
             { "ORDER", Keyword.Order },
+            { "GROUP", Keyword.Group },
             { "BY", Keyword.By },
             { "AS", Keyword.As },
             { "CREATE", Keyword.Create },
@@ -640,6 +641,17 @@ namespace wooby.Parsing
                             if (!string.IsNullOrEmpty(lastReference.Table))
                             {
                                 throw new Exception($"Undefined reference to function call \"{lastReference.Join()}\"");
+                            }
+
+                            var funcMeta = context.FindFunction(lastReference.Column);
+                            if (funcMeta == null)
+                            {
+                                throw new Exception("Undefined reference to function");
+                            }
+
+                            if (funcMeta.IsAggregate && !flags.AllowAggregateFunctions)
+                            {
+                                throw new Exception("Aggregate functions not allowed in this context");
                             }
 
                             var func = new FunctionCall() { Name = lastReference.Column, Arguments = ParseFunctionArguments(input, ref offset, context, statement, resolveReferences) };
