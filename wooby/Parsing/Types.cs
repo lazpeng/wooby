@@ -86,6 +86,7 @@ namespace wooby.Parsing
         MoreEqual,
         Equal,
         NotEqual,
+        Remainder,
     }
 
     public enum Keyword
@@ -312,21 +313,25 @@ namespace wooby.Parsing
         public ColumnReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
         public Statement Parent { get; set; } = null;
-        public StatementFlags UsedFlags { get; set; }
+        public StatementFlags UsedFlags { get; set; } = new StatementFlags();
 
-        public ColumnReference TryFindReferenceRecursive(ColumnReference reference, int level)
+        public ColumnReference TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
         {
-            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier)
+            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier || reference.Table == "")
             {
-                reference.Table = MainSource.Table;
-                reference.TableIdentifier = MainSource.Identifier;
-                reference.ParentLevel = level;
-                return reference;
+                var col = context.FindColumn(new ColumnReference { Table = MainSource.Table, Column = reference.Column });
+                if (col != null)
+                {
+                    reference.Table = MainSource.Table;
+                    reference.TableIdentifier = MainSource.Identifier;
+                    reference.ParentLevel = level;
+                    return reference;
+                }
             }
 
             if (Parent != null)
             {
-                return Parent.TryFindReferenceRecursive(reference, level + 1);
+                return Parent.TryFindReferenceRecursive(context, reference, level + 1);
             }
             else return null;
         }

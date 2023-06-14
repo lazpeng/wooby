@@ -44,40 +44,26 @@ namespace wooby.Database
 
         private void InitializeTables()
         {
-            Tables = new List<TableData>()
+            Tables = new List<TableData>();
+
+            var dualMeta = new TableMeta()
             {
-                new TableData()
-                {
-                    Meta = new TableMeta()
-                    {
-                        Name = "dual",
-                        Columns = new List<ColumnMeta>(),
-                        IsReal = false,
-                        IsTemporary = false
-                    },
-                    DataProvider = new Dual_DataProvider()
-                },
-                new TableData()
-                {
-                    Meta = new TableMeta()
-                    {
-                        Name = "lovelive",
-                    },
-                    DataProvider = new LoveLive_DataProvider()
-                }
+                Name = "dual",
+                Columns = new List<ColumnMeta>(),
+                IsReal = false,
+                IsTemporary = false
             };
+            Context.AddTable(dualMeta);
+            Tables.Add(new TableData { Meta = dualMeta, DataProvider = new Dual_DataProvider() });
 
-            foreach (var t in Tables)
-            {
-                Context.AddTable(t.Meta);
-            }
-
-            // TODO: Improve this
-            Context.AddColumn(new ColumnMeta() { Name = "id", Type = ColumnType.Number }, Tables[1].Meta);
-            Context.AddColumn(new ColumnMeta() { Name = "parent_id", Type = ColumnType.Number }, Tables[1].Meta);
-            Context.AddColumn(new ColumnMeta() { Name = "nome", Type = ColumnType.String }, Tables[1].Meta);
-            Context.AddColumn(new ColumnMeta() { Name = "ano", Type = ColumnType.Number }, Tables[1].Meta);
-            Context.AddColumn(new ColumnMeta() { Name = "integrantes", Type = ColumnType.Number }, Tables[1].Meta);
+            var loveliveMeta = new TableMeta() { Name = "lovelive" };
+            Context.AddColumn(new ColumnMeta() { Name = "id", Type = ColumnType.Number }, loveliveMeta);
+            Context.AddColumn(new ColumnMeta() { Name = "parent_id", Type = ColumnType.Number }, loveliveMeta);
+            Context.AddColumn(new ColumnMeta() { Name = "nome", Type = ColumnType.String }, loveliveMeta);
+            Context.AddColumn(new ColumnMeta() { Name = "ano", Type = ColumnType.Number }, loveliveMeta);
+            Context.AddColumn(new ColumnMeta() { Name = "integrantes", Type = ColumnType.Number }, loveliveMeta);
+            Context.AddTable(loveliveMeta);
+            Tables.Add(new TableData() { Meta = loveliveMeta, DataProvider = new LoveLive_DataProvider(loveliveMeta) });
         }
 
         private static void CheckOutputRows(ExecutionContext context)
@@ -336,6 +322,32 @@ namespace wooby.Database
             throw new ArgumentException("Invalid arguments for division");
         }
 
+        private static ColumnValue Remainder(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            AssertValuesNotBoolean(left, right);
+            if (AnyValuesNull(left, right))
+            {
+                return ColumnValue.Null();
+            }
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                return new ColumnValue() { Number = lnum % rnum, Kind = ValueKind.Number };
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                throw new Exception("Invalid operation between strings");
+            }
+
+            throw new ArgumentException("Invalid arguments for division");
+        }
+
         private static ColumnValue Multiply(ExecutionContext context)
         {
             var right = context.Stack.Pop();
@@ -526,13 +538,44 @@ namespace wooby.Database
             Tables.Add(new TableData
             {
                 Meta = meta,
-                DataProvider = new Stub_DataProvider()
+                DataProvider = new InMemory_DataProvider(meta)
             });
         }
 
         private void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
         {
-            throw new NotImplementedException();
+            var newColumns = new Dictionary<int, ColumnValue>();
+
+            if (insert.Columns.Count != insert.Values.Count)
+            {
+                throw new Exception("Error: Different length for Columns list as Values list");
+            }
+
+            var table = exec.Context.FindTable(insert.MainSource);
+            if (table == null)
+            {
+                throw new Exception("Could not find table");
+            }
+
+            for (int i = 0; i < insert.Columns.Count; ++i)
+            {
+                var idx = table.Columns.FindIndex(c => c.Name == insert.Columns[i]);
+                if (idx < 0)
+                {
+                    throw new Exception($"Could not find column {insert.Columns[i]}");
+                }
+
+                var instructions = new List<Instruction>();
+                Compiler.CompileExpression(insert, insert.Values[i], exec.Context, instructions, PushResultKind.None);
+                Execute(instructions, exec);
+
+                newColumns.Add(idx, exec.PopStack());
+            }
+
+            SetupMainSource(exec, insert.MainSource);
+
+            exec.MainSource.DataProvider.Insert(newColumns);
+            exec.RowsAffected = 1;
         }
 
         private void ExecuteUpdate(ExecutionContext exec, UpdateStatement update)
@@ -542,7 +585,28 @@ namespace wooby.Database
 
         private void ExecuteDelete(ExecutionContext exec, DeleteStatement delete)
         {
-            throw new NotImplementedException();
+            var filter = new List<Instruction>();
+            if (delete.FilterConditions != null)
+            {
+                Compiler.CompileExpression(delete, delete.FilterConditions, Context, filter, PushResultKind.None);
+            }
+
+            SetupMainSource(exec, delete.MainSource);
+            int affected = 0;
+
+            while (exec.MainSource.DataProvider.SeekNext())
+            {
+                Execute(filter, exec);
+
+                var top = exec.PopStack(true);
+                if (filter.Count == 0 || (top != null && top.Kind == ValueKind.Boolean && top.Boolean))
+                {
+                    affected += 1;
+                    exec.MainSource.DataProvider.Delete();
+                }
+            }
+
+            exec.RowsAffected = affected;
         }
 
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
@@ -573,13 +637,7 @@ namespace wooby.Database
 
             // Select main source
 
-            var sourceId = Context.FindTable(query.MainSource).Id;
-            var sourceData = Tables.Find(t => t.Meta.Id == sourceId);
-            exec.MainSource = new ExecutionDataSource()
-            {
-                Meta = sourceData.Meta,
-                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Meta.Columns.Count)
-            };
+            SetupMainSource(exec, query.MainSource);
 
             // First, filter all columns in the source if a filter was specified
             var filteredRows = new List<long>();
@@ -631,6 +689,21 @@ namespace wooby.Database
             CheckOutputRows(exec);
         }
 
+        private void SetupMainSource(ExecutionContext exec, long tableId)
+        {
+            var sourceData = Tables.Find(t => t.Meta.Id == tableId);
+            exec.MainSource = new ExecutionDataSource()
+            {
+                Meta = sourceData.Meta,
+                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Meta.Columns.Count)
+            };
+        }
+
+        private void SetupMainSource(ExecutionContext exec, ColumnReference source)
+        {
+            SetupMainSource(exec, Context.FindTable(source).Id);
+        }
+
         public ExecutionContext Execute(Statement statement)
         {
             var exec = new ExecutionContext(Context);
@@ -638,10 +711,12 @@ namespace wooby.Database
             if (statement is SelectStatement query)
             {
                 ExecuteQuery(exec, query);
-            } else if (statement is CreateStatement create)
+            }
+            else if (statement is CreateStatement create)
             {
                 ExecuteCreate(exec, create);
-            } else if (statement is InsertStatement insert)
+            }
+            else if (statement is InsertStatement insert)
             {
                 ExecuteInsert(exec, insert);
             }
@@ -720,6 +795,9 @@ namespace wooby.Database
                         break;
                     case OpCode.Div:
                         exec.Stack.Push(Divide(exec));
+                        break;
+                    case OpCode.Rem:
+                        exec.Stack.Push(Remainder(exec));
                         break;
                     case OpCode.Mul:
                         exec.Stack.Push(Multiply(exec));

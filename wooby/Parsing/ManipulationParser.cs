@@ -22,18 +22,25 @@ namespace wooby.Parsing
                 {
                     // We leave the ) for the caller
                     break;
-                } else if (next.Kind == TokenKind.Comma)
+                }
+                else if (next.Kind == TokenKind.Comma)
                 {
                     if (list.Count == 0)
                     {
                         throw new Exception("Column list starts with a comma");
-                    } else
+                    }
+                    else
                     {
                         offset += next.InputLength;
                         next = NextToken(input, offset);
                     }
                 }
+                else if (next.Kind == TokenKind.None)
+                {
+                    throw new Exception("Unexpected end of input");
+                }
 
+                offset += next.InputLength;
                 AssertTokenIsSymbol(next, "Expected symbol in INSERT column target list");
                 var column = next.StringValue;
 
@@ -75,8 +82,14 @@ namespace wooby.Parsing
                         offset += next.InputLength;
                     }
                 }
+                else if (next.Kind == TokenKind.None)
+                {
+                    throw new Exception("Unexpected end of input");
+                }
 
-                list.Add(ParseExpression(input, offset, context, statement, new ExpressionFlags { SingleValueSubSelectAllowed = true }, true, false));
+                var expr = ParseExpression(input, offset, context, statement, new ExpressionFlags { SingleValueSubSelectAllowed = true }, true, false);
+                list.Add(expr);
+                offset += expr.FullText.Length;
             }
 
             length = offset - originalOffset;
@@ -96,6 +109,7 @@ namespace wooby.Parsing
 
             // Which table we are INSERTing into
             statement.MainSource = ParseReference(input, offset, context, statement, new ReferenceFlags { TableOnly = true });
+            offset += statement.MainSource.InputLength;
 
             next = NextToken(input, offset);
             offset += next.InputLength;
@@ -135,7 +149,33 @@ namespace wooby.Parsing
 
         public DeleteStatement ParseDelete(string input, int offset, Context context)
         {
-            throw new NotImplementedException();
+            int originalOffset = offset;
+            var statement = new DeleteStatement();
+
+            // First is INSERT, Next should be DELETE
+            SkipNextToken(input, ref offset);
+            var next = NextToken(input, offset);
+            AssertTokenIsKeyword(next, Keyword.From, "Expected FROM after DELETE");
+            offset += next.InputLength;
+
+            // Which table we are DELETing from
+            statement.MainSource = ParseReference(input, offset, context, statement, new ReferenceFlags { TableOnly = true });
+            offset += statement.MainSource.InputLength;
+
+            next = NextToken(input, offset);
+            if (next.IsKeyword() && next.KeywordValue == Keyword.Where)
+            {
+                offset += next.InputLength;
+                offset += ParseWhere(input, offset, context, statement);
+            }
+            else if (next.Kind == TokenKind.None) { } // Ok
+            else
+            {
+                throw new Exception("Unexpected token after DELETE");
+            }
+
+            statement.OriginalText = input[originalOffset..offset];
+            return statement;
         }
     }
 }

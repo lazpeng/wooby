@@ -103,15 +103,23 @@ namespace wooby.Database
 
     public interface ITableDataProvider
     {
+        // Reads and returns a row with the given rowid
         IEnumerable<ColumnValue> Seek(long RowId);
+        // Reads the next row and updates the rowid argument to the current row's id
         IEnumerable<ColumnValue> SeekNext(ref long RowId);
+        // Deletes a row, returning the previous rowId (row before the one deleted) or long.MinValue
+        long Delete(long rowid);
+        // Creates a new row with the given values using a dictionary of (ColumnIndex, ColumnValue) and returns its rowid
+        long Insert(Dictionary<int, ColumnValue> values);
+        // Updates a row with the given id using the given dictionary of (ColumnIndex, ColumnValue)
+        void Update(long rowid, Dictionary<int, ColumnValue> columns);
     }
 
     public class TableCursor
     {
         private readonly ITableDataProvider Source;
         private readonly int NumCols;
-        private long RowId = -1;
+        private long RowId = long.MinValue;
         private IEnumerable<ColumnValue> CurrentValues;
 
         public TableCursor(ITableDataProvider Source, int NumCols)
@@ -157,6 +165,22 @@ namespace wooby.Database
 
             return CurrentValues.ElementAt(Index);
         }
+
+        public void Delete()
+        {
+            RowId = Source.Delete(RowId);
+        }
+
+        public long Insert(Dictionary<int, ColumnValue> values)
+        {
+            var id = Source.Insert(values);
+            if (id == long.MinValue || !Seek(id))
+            {
+                return long.MinValue;
+            }
+
+            return id;
+        }
     }
 
     public enum OpCode : int
@@ -170,6 +194,7 @@ namespace wooby.Database
         Sub,
         Div,
         Mul,
+        Rem,
         Concat,
         Eq,
         NEq,
@@ -224,7 +249,6 @@ namespace wooby.Database
         public int RowsAffected { get; set; } = 0;
         public Context Context { get; }
         public ExecutionDataSource MainSource { get; set; }
-        public Stack<long> Checkpoints { get; set; } = new Stack<long>();
         public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
         public List<RowOrderData> OrderingResults { get; set; } = new List<RowOrderData>();
         public ExecutionContext Previous { get; set; } = null;
@@ -232,6 +256,22 @@ namespace wooby.Database
         public ExecutionContext(Context ctx)
         {
             Context = ctx;
+        }
+
+        public ColumnValue PopStack(bool returnNull = false)
+        {
+            if (Stack.Count == 0)
+            {
+                if (returnNull)
+                {
+                    return null;
+                } else
+                {
+                    throw new Exception("Stack is empty");
+                }
+            }
+
+            return Stack.Pop();
         }
     }
 }
