@@ -18,6 +18,17 @@ namespace wooby
         public ValueKind Kind { get; set; }
         public string Text { get; set; }
         public double Number { get; set; }
+
+        public string PrettyPrint()
+        {
+            return Kind switch
+            {
+                ValueKind.Null => "",
+                ValueKind.Number => $"{Number}",
+                ValueKind.Text => Text,
+                _ => ""
+            };
+        }
     }
 
     public class OutputColumnMeta
@@ -58,21 +69,6 @@ namespace wooby
         {
             var currentDate = DateTime.Now.ToString("u");
             return new ColumnValue() { Kind = ValueKind.Text, Text = currentDate };
-        }
-    }
-
-    class CurrentTime_Variable : DynamicVariable
-    {
-        public CurrentTime_Variable(long Id) : base(Id)
-        {
-            Name = "CURRENT_TIME";
-            ResultType = ColumnType.String;
-        }
-
-        public override ColumnValue WhenCalled(ExecutionContext _)
-        {
-            var time = DateTimeOffset.Now.ToString("hh:mm:sszzz");
-            return new ColumnValue() { Kind = ValueKind.Text, Text = time };
         }
     }
 
@@ -133,6 +129,86 @@ namespace wooby
         }
     }
 
+    public class LoveLive_DataProvider : ITableDataProvider
+    {
+        private class Group
+        {
+            public string Nome;
+            public int Ano;
+            public int NumIntegrantes;
+        }
+
+        private List<Group> grupos = new()
+        {
+            new Group() { Nome = "μ's", Ano = 2010, NumIntegrantes = 9 },
+            new Group() { Nome = "Aqours", Ano = 2016, NumIntegrantes = 9 },
+            new Group() { Nome = "Nijigasaki School Idol Club", Ano = 2017, NumIntegrantes = 10 },
+            new Group() { Nome = "Liella", Ano = 2020, NumIntegrantes = 5 },
+        };
+
+        private int cursor = -1;
+
+        public ColumnValue GetColumn(int index)
+        {
+            if (cursor < 0)
+            {
+                throw new InvalidOperationException();
+            }
+
+            var grupo = grupos[cursor];
+
+            return index switch
+            {
+                0 => new ColumnValue() { Kind = ValueKind.Text, Text = grupo.Nome },
+                1 => new ColumnValue() { Kind = ValueKind.Number, Number = grupo.Ano },
+                2 => new ColumnValue() { Kind = ValueKind.Number, Number = grupo.NumIntegrantes },
+                _ => throw new InvalidOperationException()
+            };
+        }
+
+        public void Reset()
+        {
+            cursor = -1;
+        }
+
+        public long RowId()
+        {
+            return cursor;
+        }
+
+        public bool Seek(long RowId)
+        {
+            if (RowId < grupos.Count)
+            {
+                cursor = (int)RowId;
+                return true;
+            }
+            else return false;
+        }
+
+        public bool SeekNext()
+        {
+            return ++cursor < grupos.Count;
+        }
+
+        public List<ColumnValue> WholeRow()
+        {
+            if (cursor < 0)
+            {
+                throw new InvalidOperationException();
+            }
+
+            var grupo = grupos[cursor];
+
+            return new()
+            {
+                new ColumnValue() { Kind = ValueKind.Text, Text = grupo.Nome },
+                new ColumnValue() { Kind = ValueKind.Number, Number = grupo.Ano },
+                new ColumnValue() { Kind = ValueKind.Number, Number = grupo.NumIntegrantes }
+            };
+        }
+    }
+
     public class TableData
     {
         public TableMeta Meta { get; set; }
@@ -154,6 +230,8 @@ namespace wooby
         AddOutputColumnDefinition,
         PushNumber,
         PushString,
+        PushColumn,
+        PushVariable,
         Sum,
         Sub,
         Div,
@@ -164,6 +242,7 @@ namespace wooby
         AuxMoreNumber,
         AuxMoreEqNumber,
         AuxEqualNumber,
+        PushStackTopToOutput,
     }
 
     public class Instruction
@@ -183,8 +262,7 @@ namespace wooby
         public Context Context { get; }
         public TableData MainSource { get; set; }
         public Stack<long> Checkpoints { get; set; } = new Stack<long>();
-        public Stack<double> NumberStack { get; set; } = new Stack<double>();
-        public Stack<string> StringStack { get; set; } = new Stack<string>();
+        public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
         public bool LastComparisionResult { get; set; } = false;
 
         public ExecutionContext(Context ctx)
@@ -216,7 +294,6 @@ namespace wooby
             Variables = new List<DynamicVariable>()
             {
                 new CurrentDate_Variable(id++),
-                new CurrentTime_Variable(id++),
                 new DatabaseName_Variable(id++),
             };
 
@@ -240,13 +317,25 @@ namespace wooby
                         IsTemporary = false
                     },
                     DataProvider = new Dual_DataProvider()
+                },
+                new TableData()
+                {
+                    Meta = new TableMeta()
+                    {
+                        Name = "lovelive",
+                    },
+                    DataProvider = new LoveLive_DataProvider()
                 }
             };
 
             foreach (var t in Tables)
             {
-                Context.AddTable(t.Meta, Context.Schemas[0]);
+                Context.AddTable(t.Meta);
             }
+
+            Context.AddColumn(new ColumnMeta() { Name = "nome", Type = ColumnType.String }, Tables[1].Meta);
+            Context.AddColumn(new ColumnMeta() { Name = "ano", Type = ColumnType.Number }, Tables[1].Meta);
+            Context.AddColumn(new ColumnMeta() { Name = "integrantes", Type = ColumnType.Number }, Tables[1].Meta);
         }
 
         private static void CheckOutputRows(ExecutionContext context)
@@ -261,12 +350,10 @@ namespace wooby
         {
             do
             {
-                if (instructions[current].OpCode == OpCode.CheckpointEnd || current == instructions.Count - 1)
+                if (instructions[current++].OpCode == OpCode.CheckpointEnd || current == instructions.Count - 1)
                 {
                     break;
                 }
-
-                ++current;
             } while (true);
 
             return current;
@@ -280,6 +367,48 @@ namespace wooby
             }
 
             context.QueryOutput.Rows.Last().Add(value);
+        }
+
+        private static ColumnValue Sum(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                return new ColumnValue() { Number = lnum + rnum, Kind = ValueKind.Number };
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                var lstr = left.Text;
+                var rstr = right.Text;
+                return new ColumnValue() { Text = lstr + rstr, Kind = ValueKind.Text };
+            }
+
+            throw new ArgumentException();
+        }
+
+        private static ColumnValue Sub(ExecutionContext context)
+        {
+            var right = context.Stack.Pop();
+            var left = context.Stack.Pop();
+
+            if (left.Kind == ValueKind.Number)
+            {
+                var lnum = left.Number;
+                var rnum = right.Number;
+
+                return new ColumnValue() { Number = lnum - rnum, Kind = ValueKind.Number };
+            }
+            else if (left.Kind == ValueKind.Text)
+            {
+                throw new Exception("Invalid operation between strings");
+            }
+
+            throw new ArgumentException();
         }
 
         public ExecutionContext Execute(List<Instruction> instructions)
@@ -305,7 +434,7 @@ namespace wooby
                         }
                         break;
                     case OpCode.PushCheckpointNext:
-                        exec.Checkpoints.Push(i + 1);
+                        exec.Checkpoints.Push(i);
                         break;
                     case OpCode.TrySeekElseSkip:
                         if (!exec.MainSource.DataProvider.SeekNext() && exec.QueryOutput.Rows.Count > 0)
@@ -322,11 +451,40 @@ namespace wooby
                         exec.QueryOutput.Definition.Add(definition);
                         break;
                     case OpCode.CheckpointEnd:
+                        i = (int)exec.Checkpoints.Peek();
                         break;
                     case OpCode.PushColumnToOutput:
+                        PushToOutput(exec, exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
                         break;
                     case OpCode.PushVariableToOutput:
                         PushToOutput(exec, Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
+                        break;
+                    case OpCode.PushNumber:
+                        exec.Stack.Push(new ColumnValue() { Kind = ValueKind.Number, Number = instruction.Num1 });
+                        break;
+                    case OpCode.PushString:
+                        exec.Stack.Push(new ColumnValue() { Kind = ValueKind.Text, Text = instruction.Str1 });
+                        break;
+                    case OpCode.Sum:
+                        exec.Stack.Push(Sum(exec));
+                        break;
+                        case OpCode.Sub:
+                        exec.Stack.Push(Sub(exec));
+                        break;
+                        case OpCode.Div:
+
+                            break;
+                        case OpCode.Mul:
+
+                            break;
+                    case OpCode.PushStackTopToOutput:
+                        PushToOutput(exec, exec.Stack.Pop());
+                        break;
+                    case OpCode.PushColumn:
+                        exec.Stack.Push(exec.MainSource.DataProvider.GetColumn((int)instruction.Arg2));
+                        break;
+                    case OpCode.PushVariable:
+                        exec.Stack.Push(Variables.Find(v => v.Id == instruction.Arg1).WhenCalled(exec));
                         break;
                     default:
                         throw new Exception("Unrecognized opcode");

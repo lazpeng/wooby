@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.31112.23
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "wooby", "wooby\wooby.csproj", "{D24F6F40-77CA-478B-A28C-D2114CF3EEBB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "wooby", "wooby\wooby.csproj", "{D24F6F40-77CA-478B-A28C-D2114CF3EEBB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj", "{B6953627-8F33-47D6-9BE4-9ACE28DD83A1}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tests", "Tests\Tests.csproj", "{B6953627-8F33-47D6-9BE4-9ACE28DD83A1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

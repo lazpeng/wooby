@@ -13,17 +13,6 @@ namespace wooby
             public List<string> Rows;
         }
 
-        static string PrettyPrint(ColumnValue value)
-        {
-            return value.Kind switch
-            {
-                ValueKind.Null => "<NULL>",
-                ValueKind.Number => $"{value.Number}",
-                ValueKind.Text => value.Text,
-                _ => ""
-            };
-        }
-
         static void PrintCommandOutput(ExecutionContext result)
         {
             var columns = new QueryOutputColumn[result.QueryOutput.Definition.Count];
@@ -33,31 +22,43 @@ namespace wooby
                 var definition = result.QueryOutput.Definition[i];
 
                 col.Title = definition.OutputName;
-                col.Rows = result.QueryOutput.Rows.Select(r => PrettyPrint(r[i])).ToList();
+                col.Rows = result.QueryOutput.Rows.Select(r => r[i].PrettyPrint()).ToList();
 
                 col.Length = Math.Max(col.Title.Length, col.Rows.Max(s => s.Length));
                 columns[i] = col;
             }
 
+            var maxLen = columns[0].Rows.Count().ToString().Length;
+
             for (int i = -1; i < columns[0].Rows.Count; ++i)
             {
-                for (int j = 0; j < columns.Length; ++j)
+                for (int j = -1; j < columns.Length; ++j)
                 {
                     string content;
-                    if (i < 0)
+                    if (j < 0)
                     {
-                        content = columns[j].Title;
+                        if (i >= 0)
+                        {
+                            content = $"{i}".PadRight(maxLen);
+                        } else content = "".PadRight(maxLen);
+                    }
+                    else if (i < 0)
+                    {
+                        var len = columns[j].Title.Length;
+                        var rem = columns[j].Length - len;
+                        var left = (int) Math.Floor(rem / 2.0) - 1;
+                        content = columns[j].Title.PadLeft(len + left).PadRight(columns[j].Length);
                     } else
                     {
-                        content = columns[j].Rows[i];
+                        content = columns[j].Rows[i].PadRight(columns[j].Length);
                     }
 
-                    if (j == 0)
+                    if (j < 0)
                     {
                         Console.Write("|");
                     }
 
-                    Console.Write($" {content.PadRight(columns[j].Length)} |");
+                    Console.Write($" {content} |");
                 }
 
                 Console.WriteLine();

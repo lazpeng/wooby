@@ -29,15 +29,6 @@ namespace wooby
         public List<ColumnMeta> Columns { get; set; } = new List<ColumnMeta>();
         public bool IsReal { get; set; }
         public bool IsTemporary { get; set; }
-        public Schema Parent { get; set; }
-    }
-
-    public class Schema
-    {
-        public int Id { get; set; }
-        public string Name { get; set; }
-        public bool IsMain { get; set; }
-        public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
     }
 
     public class GlobalVariable
@@ -49,15 +40,10 @@ namespace wooby
 
     public class Context
     {
-        public List<Schema> Schemas { get; private set; } = new List<Schema>();
+        public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
         public List<GlobalVariable> Variables { get; private set; } = new List<GlobalVariable>();
 
-        public Context()
-        {
-            AddSchema(new Schema() { IsMain = true, Name = "main" });
-        }
-
-        public static void AddColumn(ColumnMeta column, TableMeta target)
+        public void AddColumn(ColumnMeta column, TableMeta target)
         {
             column.Parent = target;
 
@@ -70,46 +56,20 @@ namespace wooby
             target.Columns.Add(column);
         }
 
-        public static void AddTable(TableMeta table, Schema target)
+        public void AddTable(TableMeta table)
         {
-            table.Parent = target;
-
             long id = 0;
-            if (target.Tables.Count > 0)
+            if (Tables.Count > 0)
             {
-                id = target.Tables.Max(t => t.Id) + 1;
+                id = Tables.Max(t => t.Id) + 1;
             }
             table.Id = id;
-            target.Tables.Add(table);
+            Tables.Add(table);
         }
 
-        public void AddSchema(Schema schema)
+        public TableMeta FindTable(ColumnReference reference)
         {
-            int id = 0;
-            if (Schemas.Count > 0)
-            {
-                id = Schemas.Max(s => s.Id) + 1;
-            }
-
-            schema.Id = id;
-            Schemas.Add(schema);
-        }
-
-        public TableMeta FindTable(TableReference reference)
-        {
-            string schema = reference.Schema;
-            if (string.IsNullOrEmpty(schema))
-            {
-                schema = "main";
-            }
-
-            var schemaMeta = Schemas.Find(s => s.Name.ToUpper() == schema.ToUpper());
-            if (schemaMeta != null)
-            {
-                return schemaMeta.Tables.Find(t => t.Name.ToUpper() == reference.Table.ToUpper());
-            }
-
-            return null;
+            return Tables.Find(t => t.Name.ToUpper() == reference.Table.ToUpper());
         }
 
         public ColumnMeta FindColumn(ColumnReference reference)
@@ -131,12 +91,9 @@ namespace wooby
 
         public bool IsReferenceValid(ColumnReference reference)
         {
-            return FindColumn(reference) != null || (string.IsNullOrEmpty(reference.Table) && FindVariable(reference.Column) != null);
-        }
-
-        public bool IsReferenceValid(TableReference reference)
-        {
-            return FindTable(reference) != null;
+            return FindColumn(reference) != null ||
+                (string.IsNullOrEmpty(reference.Table) && FindVariable(reference.Column) != null) ||
+                (reference.Column == "*" && FindTable(reference) != null);
         }
     }
 }
