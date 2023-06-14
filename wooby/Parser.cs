@@ -123,6 +123,7 @@ namespace wooby
             {
                 ',' => new Token { Kind = TokenKind.Comma, InputLength = 1 },
                 ';' => new Token { Kind = TokenKind.SemiColon, InputLength = 1 },
+                '.' => new Token { Kind = TokenKind.Dot, InputLength = 1 },
                 '\'' => ParseString(input, offset),
                 _ => PeekToken(input, offset + skipped) switch
                 {
@@ -145,7 +146,7 @@ namespace wooby
 
             foreach (var c in input[offset..])
             {
-                if ((c == '\"' && originalOffset != offset) || char.IsWhiteSpace(c) || !(char.IsDigit(c) || char.IsLetter(c)) || char.IsControl(c))
+                if ((c == '\"' && originalOffset != offset) || char.IsWhiteSpace(c) || !(char.IsDigit(c) || char.IsLetter(c) || c == '_') || char.IsControl(c))
                 {
                     break;
                 }
@@ -165,7 +166,7 @@ namespace wooby
             }
         }
 
-        private Token ParseString(string input, int offset)
+        private static Token ParseString(string input, int offset)
         {
             int original = offset;
 
@@ -195,7 +196,7 @@ namespace wooby
             return new Token { Kind = TokenKind.LiteralString, StringValue = input[start..(offset - 1)], InputLength = offset - original };
         }
 
-        private Token ParseNumber(string input, int offset)
+        private static Token ParseNumber(string input, int offset)
         {
             double value = 0d;
             int fraction = 0, sciNot = -1;
@@ -294,7 +295,55 @@ namespace wooby
             };
         }
 
-        private int ParseSubExpression(string input, int offset, Context context, ExpressionFlags flags, Expression expr, bool root)
+        private void ProcessExpressionNodeType(Expression expr, Context context, Expression.Node node)
+        {
+            Expression.ExpressionType nodeType;
+            if (node.Kind == Expression.NodeKind.Reference)
+            {
+                SanitizeReference(node.ReferenceValue, context);
+
+                var column = context.FindColumn(node.ReferenceValue);
+
+                if (column != null)
+                {
+                    nodeType = Expression.ColumnTypeToExpressionType(column.Type);
+                }
+                else
+                {
+                    var variable = context.FindVariable(node.ReferenceValue.Column);
+                    if (variable != null && string.IsNullOrEmpty(node.ReferenceValue.Table))
+                    {
+                        nodeType = Expression.ColumnTypeToExpressionType(variable.Type);
+                    }
+                    else
+                    {
+                        throw new Exception("Unresolved reference in expression");
+                    }
+                }
+
+            } else if (node.Kind == Expression.NodeKind.Number)
+            {
+                nodeType = Expression.ExpressionType.Number;
+            } else if (node.Kind == Expression.NodeKind.String)
+            {
+                nodeType = Expression.ExpressionType.String;
+            } else
+            {
+                return;
+            }
+
+
+            if (expr.Type == Expression.ExpressionType.Unknown)
+            {
+                expr.Type = nodeType;
+            }
+            else if (expr.Type != nodeType)
+            {
+                throw new Exception("Incompatible value types in expression");
+            }
+        }
+
+        private int ParseSubExpression(string input, int offset, Context context, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences)
         {
             bool lastWasOperator = true;
             bool first = true;
@@ -327,8 +376,13 @@ namespace wooby
                             throw new Exception("Unexpected alias on wildcard");
                         }
 
-                        var reference = ParseReference(input, offset, context, flags.WildcardAllowed);
+                        var reference = ParseReference(input, offset, context, flags.WildcardAllowed, resolveReferences);
                         expr.Identifier = reference;
+
+                        if (!string.IsNullOrEmpty(reference.Table))
+                        {
+                            throw new Exception("Invalid expression alias");
+                        }
 
                         offset += reference.InputLength;
 
@@ -366,6 +420,7 @@ namespace wooby
                     {
                         throw new Exception("Unexpected comma in middle of expression");
                     }
+                    offset -= token.InputLength;
                     break;
                 }
                 else if (token.Kind == TokenKind.Operator)
@@ -398,7 +453,7 @@ namespace wooby
 
                     if (token.OperatorValue == Operator.ParenthesisLeft)
                     {
-                        offset = ParseSubExpression(input, offset, context, flags, expr, false);
+                        offset = ParseSubExpression(input, offset, context, flags, expr, false, resolveReferences);
                         lastWasOperator = false;
                     }
                     else if (token.OperatorValue == Operator.ParenthesisRight)
@@ -430,55 +485,36 @@ namespace wooby
                     {
                         offset -= token.InputLength;
                         // Only allow table wildcards (e.g. tablename.*) on root scope, when no other value or operator was provided
-                        var symbol = ParseReference(input, offset, context, root && expr.Nodes.Count == 0 && flags.WildcardAllowed);
+                        var symbol = ParseReference(input, offset, context, root && expr.Nodes.Count == 0 && flags.WildcardAllowed, resolveReferences);
+                        var symNode = new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = symbol };
 
-                        var column = context.FindColumn(symbol);
-                        if (column == null)
+                        if (resolveReferences)
                         {
-                            throw new Exception("Unresolved reference to column in expression");
+                            ProcessExpressionNodeType(expr, context, symNode);
+                        } else
+                        {
+                            expr.Type = Expression.ExpressionType.Unknown;
                         }
 
-                        var colType = Expression.ColumnTypeToExpressionType(column.Type);
-
-                        if (expr.Type == Expression.ExpressionType.Unknown)
-                        {
-                            expr.Type = colType;
-                        }
-                        else if (expr.Type != colType)
-                        {
-                            throw new Exception("Incompatible value types in expression");
-                        }
-
-                        expr.Nodes.Add(new Expression.Node() { Kind = Expression.NodeKind.Reference, ReferenceValue = symbol });
+                        expr.Nodes.Add(symNode);
                         offset += symbol.InputLength;
                     }
                     else if (token.Kind == TokenKind.LiteralNumber)
                     {
-                        if (expr.Type == Expression.ExpressionType.Unknown)
-                        {
-                            expr.Type = Expression.ExpressionType.Number;
-                        }
-                        else if (expr.Type != Expression.ExpressionType.Number)
-                        {
-                            throw new Exception("Incompatible value types in expression");
-                        }
-
                         var num = token.NumberValue;
-                        expr.Nodes.Add(new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = num });
+                        var numNode = new Expression.Node() { Kind = Expression.NodeKind.Number, NumberValue = num };
+
+                        ProcessExpressionNodeType(expr, context, numNode);
+
+                        expr.Nodes.Add(numNode);
                     }
                     else if (token.Kind == TokenKind.LiteralString)
                     {
-                        if (expr.Type == Expression.ExpressionType.Unknown)
-                        {
-                            expr.Type = Expression.ExpressionType.String;
-                        }
-                        else if (expr.Type != Expression.ExpressionType.String)
-                        {
-                            throw new Exception("Incompatible value types in expression");
-                        }
+                        var strNode = new Expression.Node() { Kind = Expression.NodeKind.String, StringValue = token.StringValue };
 
-                        var str = token.StringValue;
-                        expr.Nodes.Add(new Expression.Node() { Kind = Expression.NodeKind.String, StringValue = str });
+                        ProcessExpressionNodeType(expr, context, strNode);
+
+                        expr.Nodes.Add(strNode);
                     }
                 }
                 else
@@ -495,14 +531,14 @@ namespace wooby
             return offset;
         }
 
-        public Expression ParseExpression(string input, int offset, Context context, ExpressionFlags flags)
+        public Expression ParseExpression(string input, int offset, Context context, ExpressionFlags flags, bool resolveReferences)
         {
             var expr = new Expression();
             int originalOffset = offset;
 
-            offset = ParseSubExpression(input, offset, context, flags, expr, true);
+            offset = ParseSubExpression(input, offset, context, flags, expr, true, resolveReferences);
 
-            if (expr.Type == Expression.ExpressionType.Unknown && !expr.IsWildcard())
+            if (expr.Type == Expression.ExpressionType.Unknown && !expr.IsWildcard() && resolveReferences)
             {
                 throw new Exception("Fatal error, expression doesn't have a type but it's not a wildcard");
             }
@@ -559,7 +595,31 @@ namespace wooby
             return reference;
         }
 
-        public ColumnReference ParseReference(string input, int offset, Context context, bool allowWildcard)
+        private void SanitizeReference(ColumnReference reference, Context context)
+        {
+            if (string.IsNullOrEmpty(reference.Table) && !context.IsReferenceValid(reference))
+            {
+                var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => context.FindColumn(new ColumnReference() { Table = t.Name, Column = reference.Column }) != null);
+
+                if (results.Count() > 1)
+                {
+                    throw new Exception($"Ambiguous column name \"{reference.Column}\"");
+                }
+                else if (!results.Any())
+                {
+                    throw new Exception("Unresolved reference");
+                }
+
+                reference.Table = results.First().Name;
+            }
+
+            if (!context.IsReferenceValid(reference))
+            {
+                throw new Exception("Unresolved column reference");
+            }
+        }
+
+        public ColumnReference ParseReference(string input, int offset, Context context, bool allowWildcard, bool resolveReferences)
         {
             int originalOffset = offset;
             var table = ParseTableReference(input, offset, context, false);
@@ -600,29 +660,22 @@ namespace wooby
                 }
             }
 
-            if (string.IsNullOrEmpty(reference.Table))
+            if (resolveReferences)
             {
-                var results = CurrentSources.Select(s => context.FindTable(s)).Where(t => context.FindColumn(new ColumnReference() { Table = t.Name, Column = reference.Column }) != null);
-
-                if (results.Count() > 1)
-                {
-                    throw new Exception($"Ambiguous column name \"{reference.Column}\"");
-                } else if (!results.Any())
-                {
-                    throw new Exception("Unresolved reference");
-                }
-
-                reference.Table = results.First().Name;
-            }
-
-            if (!context.IsReferenceValid(reference))
-            {
-                throw new Exception("Unresolved column reference");
+                SanitizeReference(reference, context);
             }
 
             reference.InputLength = offset - originalOffset;
 
             return reference;
+        }
+
+        private void ResolveUnresolvedReferences(Expression expr, Context context)
+        {
+            foreach (var node in expr.Nodes)
+            {
+                ProcessExpressionNodeType(expr, context, node);
+            }
         }
 
         public SelectCommand ParseSelect(string input, int offset, Context context)
@@ -656,7 +709,7 @@ namespace wooby
                     offset += next.InputLength;
                 }
 
-                var expr = ParseExpression(input, offset, context, exprFlags);
+                var expr = ParseExpression(input, offset, context, exprFlags, false);
 
                 if (command.OutputColumns.Count > 0 && expr.IsWildcard())
                 {
@@ -672,6 +725,11 @@ namespace wooby
 
             var source = ParseTableReference(input, offset, context, true);
             CurrentSources.Add(source);
+
+            foreach (var expr in command.OutputColumns.Where(e => e.Type == Expression.ExpressionType.Unknown))
+            {
+                ResolveUnresolvedReferences(expr, context);
+            }
 
             command.MainSource = source;
             offset += source.InputLength;
@@ -695,7 +753,7 @@ namespace wooby
                             throw new Exception("Unexpected WHERE when filter has already been set");
                         }
 
-                        command.FilterConditions = ParseExpression(input, offset, context, exprFlags);
+                        command.FilterConditions = ParseExpression(input, offset, context, exprFlags, true);
                         offset += command.FilterConditions.FullText.Length;
                     }
                     else if (next.KeywordValue == Keyword.Order)
@@ -708,7 +766,7 @@ namespace wooby
 
                         offset += next.InputLength;
 
-                        var orderExpr = ParseExpression(input, offset, context, exprFlags);
+                        var orderExpr = ParseExpression(input, offset, context, exprFlags, true);
                         command.OutputOrder = new Ordering { OrderExpression = orderExpr };
                         offset += orderExpr.FullText.Length;
 

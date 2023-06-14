@@ -85,9 +85,14 @@ namespace wooby
             return null;
         }
 
+        public GlobalVariable FindVariable(string Name)
+        {
+            return Variables.Find(v => v.Name == Name);
+        }
+
         public bool IsReferenceValid(ColumnReference reference)
         {
-            return FindColumn(reference) != null;
+            return FindColumn(reference) != null || (string.IsNullOrEmpty(reference.Table) && FindVariable(reference.Column) != null);
         }
 
         public bool IsReferenceValid(TableReference reference)
