@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using wooby.Database.Defaults;
 using wooby.Database.Persistence;
-using wooby.Parsing;
 
 namespace wooby.Database
 {
@@ -207,56 +204,6 @@ namespace wooby.Database
         }
     }
 
-    public enum OpCode : int
-    {
-        PushColumnToOutput = 0,
-        CallFunction,
-        PushNumber,
-        PushString,
-        PushColumn,
-        Sum,
-        Sub,
-        Div,
-        Mul,
-        Rem,
-        Concat,
-        Eq,
-        NEq,
-        LessEq,
-        Less,
-        MoreEq,
-        More,
-        AuxLessNumber,
-        AuxLessEqNumber,
-        AuxMoreNumber,
-        AuxMoreEqNumber,
-        AuxEqualNumber,
-        PushStackTopToOutput,
-        PushStackTopToOrdering,
-        PushStackTopToGrouping,
-        ExecuteSubQuery,
-    }
-
-    public enum PushResultKind
-    {
-        None,
-        ToOutput,
-        ToOrdering,
-        ToGrouping,
-    }
-
-    public class Instruction
-    {
-        public OpCode OpCode { get; set; }
-        public long Arg1 { get; set; }
-        public long Arg2 { get; set; }
-        public long Arg3 { get; set; }
-        public string Str1 { get; set; }
-        public double Num1 { get; set; }
-        // LOL
-        public SelectStatement SubQuery { get; set; }
-    }
-
     public class TableData
     {
         public TableMeta Meta { get; set; }
@@ -272,14 +219,14 @@ namespace wooby.Database
     public class ExecutionContext
     {
         public Output QueryOutput { get; } = new Output();
-        public int RowsAffected { get; set; } = 0;
+        public int RowsAffected { get; set; }
         public Context Context { get; }
         public ExecutionDataSource MainSource { get; set; }
         public Stack<ColumnValue> Stack { get; set; } = new Stack<ColumnValue>();
         public List<RowMetaData> OrderingResults { get; set; } = new List<RowMetaData>();
         public List<RowMetaData> GroupingResults { get; set; } = new List<RowMetaData>();
         public List<TempRow> TempRows { get; set; } = new List<TempRow>();
-        public ExecutionContext Previous { get; set; } = null;
+        public ExecutionContext Previous { get; set; }
         public int RowNumber { get; private set; }
 
         public ExecutionContext(Context ctx)

@@ -111,36 +111,6 @@ namespace wooby.Database
             }
         }
 
-        private static void PushToOutput(ExecutionContext context, ColumnValue value)
-        {
-            if (context.QueryOutput.Rows.Count == 0)
-            {
-                throw new InvalidOperationException("Query output has no rows to push to");
-            }
-
-            context.QueryOutput.Rows.Last().Add(value);
-        }
-
-        private static void PushToGrouping(ExecutionContext context, ColumnValue value)
-        {
-            if (context.GroupingResults.Count == 0)
-            {
-                throw new InvalidOperationException("Query ordering has no rows to push to");
-            }
-
-            context.GroupingResults.Last().Values.Add(value);
-        }
-
-        private static void PushToOrdering(ExecutionContext context, ColumnValue value)
-        {
-            if (context.OrderingResults.Count == 0)
-            {
-                throw new InvalidOperationException("Query ordering has no rows to push to");
-            }
-
-            context.OrderingResults.Last().Values.Add(value);
-        }
-
         public class ColumnValueComparer : IComparer<ColumnValue>, IEqualityComparer<ColumnValue>
         {
             public int Compare(ColumnValue x, ColumnValue y)
@@ -696,6 +666,7 @@ namespace wooby.Database
             }
 
             var numCols = insert.Columns.Count == 0 ? table.Columns.Count : insert.Columns.Count;
+            var flags = new EvaluationFlags {Origin = ExpressionOrigin.OutputColumn, Phase = QueryEvaluationPhase.Final};
 
             for (int i = 0; i < numCols; ++i)
             {
@@ -714,11 +685,8 @@ namespace wooby.Database
                     throw new Exception($"Could not find column {insert.Columns[i]}");
                 }
 
-                var instructions = new List<Instruction>();
-                Compiler.CompileExpression(insert, insert.Values[i], exec.Context, instructions, PushResultKind.None);
-                Execute(instructions, exec);
-
-                newColumns.Add(idx, exec.PopStack());
+                var value = EvaluateExpression(exec, insert.Values[i], null, flags);
+                newColumns.Add(idx, value);
             }
 
             SetupMainSource(exec, insert.MainSource);
@@ -729,78 +697,69 @@ namespace wooby.Database
 
         private void ExecuteUpdate(ExecutionContext exec, UpdateStatement update)
         {
-            var filter = new List<Instruction>();
-            if (update.FilterConditions != null)
-            {
-                Compiler.CompileExpression(update, update.FilterConditions, Context, filter, PushResultKind.None);
-            }
-
             SetupMainSource(exec, update.MainSource);
-            int affected = 0;
 
-            // Important: The instructions are to be executed every line to compute new results based on (possibly) the current values
-            var updateColumns = new List<int>();
-            var updateInstructions = new List<Instruction>();
-
-            foreach (var col in update.Columns)
-            {
-                var column = exec.Context.FindColumn(col.Item1);
-
-                if (column == null)
-                {
-                    throw new Exception("Could not find referenced column");
-                }
-
-                updateColumns.Add(column.Id);
-
-                Compiler.CompileExpression(update, col.Item2, Context, updateInstructions, PushResultKind.ToOutput);
-            }
+            var flags = new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final};
 
             exec.QueryOutput.Rows.Add(new());
             while (exec.MainSource.DataProvider.SeekNext())
             {
-                if (FilterIsTrueForCurrentRow(exec, filter))
+                if (update.FilterConditions != null)
                 {
-                    Execute(updateInstructions, exec);
-                    // In order, perform the update utilizing the columns in the output
-
-                    var dict = new Dictionary<int, ColumnValue>();
-
-                    int outputIndex = 0;
-                    foreach (var index in updateColumns)
+                    var filter = EvaluateExpression(exec, update.FilterConditions, null, flags);
+                    if (filter.Kind != ValueKind.Boolean)
                     {
-                        dict.Add(index, exec.QueryOutput.Rows[0][outputIndex++]);
+                        throw new Exception("Expected boolean result for WHERE clause expression");
                     }
 
-                    exec.MainSource.DataProvider.Update(dict);
-
-                    // Clear for the next row
-                    exec.QueryOutput.Rows[0].Clear();
-                    affected += 1;
+                    if (!filter.Boolean)
+                    {
+                        continue;
+                    }
                 }
-            }
+                
+                var dict = new Dictionary<int, ColumnValue>();
 
-            exec.RowsAffected = affected;
+                foreach (var col in update.Columns)
+                {
+                    var column = exec.Context.FindColumn(col.Item1);
+
+                    if (column == null)
+                    {
+                        throw new Exception("Could not find referenced column");
+                    }
+
+                    var value = EvaluateExpression(exec, col.Item2, null, flags);
+                    dict.Add(column.Id, value);
+                }
+                exec.MainSource.DataProvider.Update(dict);
+                exec.RowsAffected += 1;
+            }
         }
 
         private void ExecuteDelete(ExecutionContext exec, DeleteStatement delete)
         {
-            var filter = new List<Instruction>();
-            if (delete.FilterConditions != null)
-            {
-                Compiler.CompileExpression(delete, delete.FilterConditions, Context, filter, PushResultKind.None);
-            }
-
             SetupMainSource(exec, delete.MainSource);
             int affected = 0;
 
             while (exec.MainSource.DataProvider.SeekNext())
             {
-                if (FilterIsTrueForCurrentRow(exec, filter))
+                if (delete.FilterConditions != null)
                 {
-                    affected += 1;
-                    exec.MainSource.DataProvider.Delete();
+                    var filter = EvaluateExpression(exec, delete.FilterConditions, null,
+                        new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final});
+                    if (filter.Kind != ValueKind.Boolean)
+                    {
+                        throw new Exception("Expected boolean result for WHERE clause expression");
+                    }
+
+                    if (!filter.Boolean)
+                    {
+                        continue;
+                    }
                 }
+                affected += 1;
+                exec.MainSource.DataProvider.Delete();
             }
 
             exec.RowsAffected = affected;
@@ -1170,94 +1129,6 @@ namespace wooby.Database
             CheckOutputRows(exec);
         }
 
-        private void OldExecuteQuery(ExecutionContext exec, SelectStatement query)
-        {
-            // Compile all expressions
-            var outputExpressions = new List<Instruction>();
-
-            foreach (var output in query.OutputColumns)
-            {
-                Compiler.CompileExpression(query, output, Context, outputExpressions, PushResultKind.ToOutput);
-                PrepareQueryOutput(exec, output);
-            }
-
-            var filter = new List<Instruction>();
-            if (query.FilterConditions != null)
-            {
-                Compiler.CompileExpression(query, query.FilterConditions, Context, filter, PushResultKind.None);
-            }
-
-            var ordering = new List<Instruction>();
-            foreach (var ord in query.OutputOrder)
-            {
-                Compiler.CompileExpression(query, ord.OrderExpression, Context, ordering, PushResultKind.ToOrdering);
-            }
-
-            var grouping = new List<Instruction>();
-            foreach (var group in query.Grouping)
-            {
-                Compiler.CompileExpression(query, group, Context, grouping, PushResultKind.ToGrouping);
-            }
-
-            SetupMainSource(exec, query.MainSource);
-
-            // First, filter all columns in the source if a filter was specified
-            var filteredRows = new List<long>();
-
-            if (query.FilterConditions != null)
-            {
-                while (exec.MainSource.DataProvider.SeekNext())
-                {
-                    if (FilterIsTrueForCurrentRow(exec, filter))
-                    {
-                        exec.QueryOutput.Rows.Add(new());
-                        filteredRows.Add(exec.MainSource.DataProvider.CurrentRowId());
-                    }
-                }
-
-                exec.QueryOutput.Rows.Clear();
-            }
-
-            var filterIndex = 0;
-
-            while (true)
-            {
-                if (query.FilterConditions != null)
-                {
-                    if (filterIndex >= filteredRows.Count)
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        exec.MainSource.DataProvider.Seek(filteredRows[filterIndex++]);
-                    }
-                }
-                else if (!exec.MainSource.DataProvider.SeekNext())
-                {
-                    break;
-                }
-
-                var rowIndex = exec.QueryOutput.Rows.Count;
-                // First get the actual outputs from the query
-                exec.QueryOutput.Rows.Add(new());
-                Execute(outputExpressions, exec);
-                // Fetch the required results for the ordering
-                exec.OrderingResults.Add(new RowMetaData() {RowIndex = rowIndex});
-                Execute(ordering, exec);
-                // Fetch results to grouping
-                exec.GroupingResults.Add(new RowMetaData() {RowIndex = rowIndex});
-                Execute(grouping, exec);
-            }
-
-            // Perform ordering on output rows
-            OrderOutputRows(exec, query);
-            // Rebuild the output rows considering the grouping
-            GroupRows(exec, query);
-            // Final check so we don't return an empty row when no rows were found
-            CheckOutputRows(exec);
-        }
-
         private void SetupMainSource(ExecutionContext exec, long tableId)
         {
             var sourceData = Tables.Find(t => t.Meta.Id == tableId);
@@ -1271,19 +1142,6 @@ namespace wooby.Database
         private void SetupMainSource(ExecutionContext exec, ColumnReference source)
         {
             SetupMainSource(exec, Context.FindTable(source).Id);
-        }
-
-        private bool FilterIsTrueForCurrentRow(ExecutionContext exec, List<Instruction> filter)
-        {
-            if (filter.Count == 0)
-            {
-                return true;
-            }
-
-            Execute(filter, exec);
-
-            var top = exec.PopStack(true);
-            return filter.Count == 0 || (top != null && top.Kind == ValueKind.Boolean && top.Boolean);
         }
 
         public ExecutionContext Execute(Statement statement)
@@ -1314,19 +1172,6 @@ namespace wooby.Database
             return exec;
         }
 
-        private static List<ColumnValue> PopFunctionArguments(ExecutionContext exec, int numArgs)
-        {
-            var result = new List<ColumnValue>(numArgs);
-
-            for (int i = 0; i < numArgs; ++i)
-            {
-                result.Add(exec.Stack.Pop());
-            }
-
-            result.Reverse();
-            return result;
-        }
-
         private ExecutionContext GetContextForLevel(ExecutionContext root, int level)
         {
             if (level <= 0)
@@ -1341,107 +1186,6 @@ namespace wooby.Database
             }
 
             return GetContextForLevel(root.Previous, level - 1);
-        }
-
-        public void Execute(List<Instruction> instructions, ExecutionContext exec)
-        {
-            for (int i = 0; i < instructions.Count; ++i)
-            {
-                var instruction = instructions[i];
-                ExecutionContext sourceContext;
-
-                switch (instruction.OpCode)
-                {
-                    case OpCode.PushColumnToOutput:
-                        sourceContext = GetContextForLevel(exec, (int) instruction.Arg3);
-                        PushToOutput(exec, sourceContext.MainSource.DataProvider.Read((int) instruction.Arg2));
-                        break;
-                    case OpCode.CallFunction:
-                        var numArgs = (int) instruction.Arg2;
-                        if (numArgs > exec.Stack.Count)
-                        {
-                            throw new InvalidOperationException(
-                                "Expected arguments for function call do not match the stack contents");
-                        }
-
-                        exec.Stack.Push(Functions.Find(v => v.Id == instruction.Arg1)
-                            .WhenCalled(exec, PopFunctionArguments(exec, numArgs), ""));
-                        break;
-                    case OpCode.PushNumber:
-                        exec.Stack.Push(new ColumnValue() {Kind = ValueKind.Number, Number = instruction.Num1});
-                        break;
-                    case OpCode.PushString:
-                        exec.Stack.Push(new ColumnValue() {Kind = ValueKind.Text, Text = instruction.Str1});
-                        break;
-                    case OpCode.Sum:
-                        exec.Stack.Push(Sum(exec));
-                        break;
-                    case OpCode.Sub:
-                        exec.Stack.Push(Sub(exec));
-                        break;
-                    case OpCode.Div:
-                        exec.Stack.Push(Divide(exec));
-                        break;
-                    case OpCode.Rem:
-                        exec.Stack.Push(Remainder(exec));
-                        break;
-                    case OpCode.Mul:
-                        exec.Stack.Push(Multiply(exec));
-                        break;
-                    case OpCode.Eq:
-                        exec.Stack.Push(Equal(exec));
-                        break;
-                    case OpCode.NEq:
-                        exec.Stack.Push(NotEqual(exec));
-                        break;
-                    case OpCode.Less:
-                        exec.Stack.Push(Less(exec, false));
-                        break;
-                    case OpCode.More:
-                        exec.Stack.Push(Greater(exec, false));
-                        break;
-                    case OpCode.LessEq:
-                        exec.Stack.Push(Less(exec, true));
-                        break;
-                    case OpCode.MoreEq:
-                        exec.Stack.Push(Greater(exec, true));
-                        break;
-                    case OpCode.PushStackTopToOutput:
-                        PushToOutput(exec, exec.Stack.Pop());
-                        break;
-                    case OpCode.PushStackTopToGrouping:
-                        PushToGrouping(exec, exec.Stack.Pop());
-                        break;
-                    case OpCode.PushStackTopToOrdering:
-                        PushToOrdering(exec, exec.Stack.Pop());
-                        break;
-                    case OpCode.PushColumn:
-                        sourceContext = GetContextForLevel(exec, (int) instruction.Arg3);
-                        exec.Stack.Push(sourceContext.MainSource.DataProvider.Read((int) instruction.Arg2));
-                        break;
-                    case OpCode.ExecuteSubQuery:
-                        var sub = new ExecutionContext(Context)
-                        {
-                            Previous = exec
-                        };
-                        OldExecuteQuery(sub, instruction.SubQuery);
-
-                        // Get first column of the last row in the target result
-                        if (sub.QueryOutput.Rows.Count > 0)
-                        {
-                            var result = sub.QueryOutput.Rows.Last()[0];
-                            exec.Stack.Push(result);
-                        }
-                        else
-                        {
-                            exec.Stack.Push(new ColumnValue {Kind = ValueKind.Null});
-                        }
-
-                        break;
-                    default:
-                        throw new Exception("Unrecognized opcode");
-                }
-            }
         }
     }
 }
