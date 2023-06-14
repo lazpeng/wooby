@@ -32,7 +32,7 @@ namespace wooby.Database
                     if (col != null)
                     {
                         inst.OpCode = OpCode.PushColumn;
-                        inst.Arg1 = col.Parent.Id;
+                        inst.Arg1 = col.Parent;
                         inst.Arg2 = col.Id;
                         inst.Arg3 = node.ReferenceValue.ParentLevel;
                     }
@@ -186,7 +186,7 @@ namespace wooby.Database
                         target.Add(new Instruction()
                         {
                             OpCode = OpCode.PushColumnToOutput,
-                            Arg1 = col.Parent.Id,
+                            Arg1 = col.Parent,
                             Arg2 = col.Id
                         });
                     }
@@ -205,11 +205,11 @@ namespace wooby.Database
                         target.Add(new Instruction()
                         {
                             OpCode = OpCode.PushColumn,
-                            Arg1 = column.Parent.Id,
+                            Arg1 = column.Parent,
                             Arg2 = column.Id
                         });
 
-                        OpCode op;
+                        OpCode? op = null;
                         if (push == PushResultKind.ToOrdering)
                         {
                             op = OpCode.PushStackTopToOrdering;
@@ -222,12 +222,15 @@ namespace wooby.Database
                             op = OpCode.PushStackTopToGrouping;
                         }
 
-                        target.Add(new Instruction()
+                        if (op != null)
                         {
-                            OpCode = op,
-                            Arg1 = column.Parent.Id,
-                            Arg2 = column.Id
-                        });
+                            target.Add(new Instruction()
+                            {
+                                OpCode = op.Value,
+                                Arg1 = column.Parent,
+                                Arg2 = column.Id
+                            });
+                        }
                     }
                 }
             }
@@ -240,7 +243,7 @@ namespace wooby.Database
                     target.Add(new Instruction()
                     {
                         OpCode = OpCode.PushColumnToOutput,
-                        Arg1 = col.Parent.Id,
+                        Arg1 = col.Parent,
                         Arg2 = col.Id
                     });
                 }

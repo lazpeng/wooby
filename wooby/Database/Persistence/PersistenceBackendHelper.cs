@@ -26,14 +26,19 @@ namespace wooby.Database.Persistence
             var info = new FileInfo(SourceFile);
             if (info.Exists)
             {
-                return info.Extension.ToLower() switch
-                {
-                    "json" => new Json.JsonContextProvider(),
-                    _ => null
-                };
+                return GetContextProviderForType(info.Extension[1..].ToLower());
             }
 
             return null;
+        }
+
+        public static IContextProvider GetContextProviderForType(string Type)
+        {
+            return Type switch
+            {
+                "json" => new Json.JsonContextProvider(),
+                _ => null
+            };
         }
     }
 }

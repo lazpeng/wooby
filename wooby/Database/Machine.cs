@@ -51,6 +51,13 @@ namespace wooby.Database
         {
             Tables = new List<TableData>();
 
+            Context.Tables.RemoveAll(table => !table.IsReal);
+
+            foreach (var table in Context.Tables)
+            {
+                RegisterTable(table, PersistenceBackendHelper.GetTableDataProvider(Context));
+            }
+
             var dualMeta = new TableMeta()
             {
                 Name = "dual",
@@ -60,7 +67,7 @@ namespace wooby.Database
             };
             RegisterTable(dualMeta, new Dual_DataProvider());
 
-            var loveliveMeta = new TableMeta() { Name = "lovelive" }
+            var loveliveMeta = new TableMeta() { Name = "lovelive", IsReal = false }
                 .AddColumn("id", ColumnType.Number)
                 .AddColumn("parent_id", ColumnType.Number)
                 .AddColumn("nome", ColumnType.String)
@@ -71,7 +78,10 @@ namespace wooby.Database
 
         private void RegisterTable(TableMeta Meta, ITableDataProvider Provider)
         {
-            Context.AddTable(Meta);
+            if (Context.Tables.Find(t => t.Name == Meta.Name) == null)
+            {
+                Context.AddTable(Meta);
+            }
             Provider.Initialize(Context, Meta);
             Tables.Add(new TableData { Meta = Meta, DataProvider = Provider });
         }
@@ -558,21 +568,30 @@ namespace wooby.Database
         private void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
         {
             var newColumns = new Dictionary<int, ColumnValue>();
-
-            if (insert.Columns.Count != insert.Values.Count)
-            {
-                throw new Exception("Error: Different length for Columns list as Values list");
-            }
-
             var table = exec.Context.FindTable(insert.MainSource);
             if (table == null)
             {
                 throw new Exception("Could not find table");
             }
 
-            for (int i = 0; i < insert.Columns.Count; ++i)
+            if (insert.Columns.Count != 0 && insert.Columns.Count != insert.Values.Count || (insert.Columns.Count == 0 && table.Columns.Count != insert.Values.Count))
             {
-                var idx = table.Columns.FindIndex(c => c.Name == insert.Columns[i]);
+                throw new Exception("Error: Different length for Columns list as Values list");
+            }
+
+            var numCols = insert.Columns.Count == 0 ? table.Columns.Count : insert.Columns.Count;
+
+            for (int i = 0; i < numCols; ++i)
+            {
+                int idx;
+                if (insert.Columns.Count == 0)
+                {
+                    idx = i;
+                } else
+                {
+                    idx = table.Columns.FindIndex(c => c.Name == insert.Columns[i]);
+                }
+
                 if (idx < 0)
                 {
                     throw new Exception($"Could not find column {insert.Columns[i]}");

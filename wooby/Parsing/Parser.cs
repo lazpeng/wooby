@@ -955,7 +955,7 @@ namespace wooby.Parsing
                 return ColumnType.Null;
             }
 
-            return token.StringValue switch
+            return token.StringValue.ToUpper() switch
             {
                 "TEXT" => ColumnType.String,
                 "INT" or "INTEGER" or "NUMBER" => ColumnType.Number,
