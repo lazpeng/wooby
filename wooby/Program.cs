@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+
 using wooby.Database;
 using wooby.Parsing;
 
@@ -42,15 +43,17 @@ namespace wooby
                         if (i >= 0)
                         {
                             content = $"{i + 1}".PadRight(maxLen);
-                        } else content = "".PadRight(maxLen);
+                        }
+                        else content = "".PadRight(maxLen);
                     }
                     else if (i < 0)
                     {
                         var len = columns[j].Title.Length;
                         var rem = columns[j].Length - len;
-                        var left = (int) Math.Floor(rem / 2.0) - 1;
+                        var left = (int)Math.Floor(rem / 2.0) - 1;
                         content = columns[j].Title.PadLeft(len + left).PadRight(columns[j].Length);
-                    } else
+                    }
+                    else
                     {
                         content = columns[j].Rows[i].PadRight(columns[j].Length);
                     }
@@ -88,7 +91,8 @@ namespace wooby
                 if (input.Trim() == "\\q")
                 {
                     quit = true;
-                } else
+                }
+                else
                 {
                     try
                     {
@@ -100,10 +104,15 @@ namespace wooby
                         }
                         else if (cmd.Kind == StatementKind.Definition)
                         {
-                            // TODO: Add what kind of object was really created, but for now it's only tables
+                            // TODO: Add what kind of object was really created (or if it was really created, not dropped, etc), but for now it's only tables
                             Console.WriteLine("Table created.");
                         }
-                    } catch (Exception e)
+                        else if (cmd.Kind == StatementKind.Manipulation)
+                        {
+                            Console.WriteLine($"{result.RowsAffected} rows affected.");
+                        }
+                    }
+                    catch (Exception e)
                     {
                         var prev = Console.ForegroundColor;
                         Console.ForegroundColor = ConsoleColor.Red;

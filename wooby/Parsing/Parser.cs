@@ -26,7 +26,13 @@ namespace wooby.Parsing
             { "BY", Keyword.By },
             { "AS", Keyword.As },
             { "CREATE", Keyword.Create },
+            { "INSERT", Keyword.Insert },
+            { "UPDATE", Keyword.Update },
+            { "DELETE", Keyword.Delete },
             { "ALTER", Keyword.Alter },
+            { "SET", Keyword.Set },
+            { "INTO", Keyword.Into },
+            { "VALUES", Keyword.Values },
             { "TABLE", Keyword.Table },
             { "COLUMN", Keyword.Column },
             { "ADD", Keyword.Add },
@@ -120,6 +126,46 @@ namespace wooby.Parsing
             };
 
             return result;
+        }
+
+        private static void AssertTokenIsKeyword(Token token, Keyword keyword, string message)
+        {
+            if (!token.IsKeyword() || token.KeywordValue != keyword)
+            {
+                throw new Exception(message);
+            }
+        }
+
+        private static void AssertTokenIsOperator(Token token, Operator op, string message)
+        {
+            if (!token.IsOperator() || token.OperatorValue != op)
+            {
+                throw new Exception(message);
+            }
+        }
+
+        private static void AssertTokenIsSymbol(Token token, string message)
+        {
+            if (token.Kind != TokenKind.Symbol)
+            {
+                throw new Exception(message);
+            }
+        }
+
+        private void SkipNextToken(string input, ref int offset)
+        {
+            var token = NextToken(input, offset);
+            offset += token.InputLength;
+        }
+
+        private string NextSymbol(string input, int offset, out int length, string errorMessage)
+        {
+            var next = NextToken(input, offset);
+            length = next.InputLength;
+
+            AssertTokenIsSymbol(next, errorMessage);
+
+            return next.StringValue;
         }
 
         private Token ParseSymbol(string input, int offset)
@@ -277,13 +323,16 @@ namespace wooby.Parsing
 
             return first.KeywordValue switch
             {
-                Keyword.Select => ParseSelect(input, 0, context, new SelectFlags(), null),
+                Keyword.Select => ParseSelect(input, 0, context, new StatementFlags(), null),
                 Keyword.Create => ParseCreate(input, 0, context),
+                Keyword.Insert => ParseInsert(input, 0, context),
+                Keyword.Update => ParseUpdate(input, 0, context),
+                Keyword.Delete => ParseDelete(input, 0, context),
                 _ => throw new NotImplementedException()
             };
         }
 
-        private static void ProcessExpressionNodeType(Expression expr, Context context, SelectStatement statement, Expression.Node node)
+        private static void ProcessExpressionNodeType(Expression expr, Context context, Statement statement, Expression.Node node)
         {
             Expression.ExpressionType nodeType;
             if (node.Kind == Expression.NodeKind.Reference)
@@ -365,7 +414,7 @@ namespace wooby.Parsing
             }
         }
 
-        private List<Expression> ParseFunctionArguments(string input, ref int og_offset, Context context, SelectStatement statement, bool resolveReferences)
+        private List<Expression> ParseFunctionArguments(string input, ref int og_offset, Context context, Statement statement, bool resolveReferences)
         {
             var exprs = new List<Expression>();
             var flags = new ExpressionFlags { GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false };
@@ -432,7 +481,7 @@ namespace wooby.Parsing
             }
         }
 
-        private int ParseSubExpression(string input, int offset, Context context, SelectStatement statement, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences, bool insideFunction)
+        private int ParseSubExpression(string input, int offset, Context context, Statement statement, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences, bool insideFunction)
         {
             bool lastWasOperator = true;
             bool lastWasReference = false;
@@ -691,7 +740,7 @@ namespace wooby.Parsing
             return offset;
         }
 
-        public Expression ParseExpression(string input, int offset, Context context, SelectStatement statement, ExpressionFlags flags, bool resolveReferences, bool insideFunction)
+        public Expression ParseExpression(string input, int offset, Context context, Statement statement, ExpressionFlags flags, bool resolveReferences, bool insideFunction)
         {
             var expr = new Expression();
             int originalOffset = offset;
@@ -714,7 +763,7 @@ namespace wooby.Parsing
             return expr;
         }
 
-        private static void SanitizeReference(ColumnReference reference, Context context, SelectStatement statement)
+        private static void SanitizeReference(ColumnReference reference, Context context, Statement statement)
         {
             if (string.IsNullOrEmpty(reference.Column))
             {
@@ -732,7 +781,7 @@ namespace wooby.Parsing
                     {
                         if (statement.Parent != null)
                         {
-                            // Check for name clashing
+                            // TODO(?) Check for name clashing
                         }
 
                         reference = statement.TryFindReferenceRecursive(reference, 0);
@@ -763,7 +812,7 @@ namespace wooby.Parsing
             }
         }
 
-        public ColumnReference ParseReference(string input, int offset, Context context, SelectStatement statement, ReferenceFlags flags)
+        public ColumnReference ParseReference(string input, int offset, Context context, Statement statement, ReferenceFlags flags)
         {
             var reference = new ColumnReference();
 
@@ -872,7 +921,7 @@ namespace wooby.Parsing
             return reference;
         }
 
-        private static void ResolveUnresolvedReferences(Expression expr, Context context, SelectStatement statement)
+        private static void ResolveUnresolvedReferences(Expression expr, Context context, Statement statement)
         {
             foreach (var node in expr.Nodes)
             {
@@ -882,8 +931,6 @@ namespace wooby.Parsing
 
         private ColumnType ParseColumnType(string input, int offset, out int deltaOffset)
         {
-            int originalOffset = offset;
-
             var token = NextToken(input, offset);
             deltaOffset = token.InputLength;
 

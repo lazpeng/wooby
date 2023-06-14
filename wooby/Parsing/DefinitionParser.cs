@@ -10,6 +10,8 @@ namespace wooby.Parsing
     {
         public CreateStatement ParseCreate(string input, int offset, Context context)
         {
+            int originalOffset = offset;
+
             var statement = new CreateStatement();
 
             // First token is CREATE
@@ -52,6 +54,7 @@ namespace wooby.Parsing
 
                 if (next.IsOperator() && next.OperatorValue == Operator.ParenthesisRight)
                 {
+                    offset += next.InputLength;
                     break;
                 } else if (next.Kind == TokenKind.Comma)
                 {
@@ -90,6 +93,7 @@ namespace wooby.Parsing
                 throw new Exception("Cannot create an empty table");
             }
 
+            statement.OriginalText = input[originalOffset..offset];
             return statement;
         }
     }

@@ -154,7 +154,7 @@ namespace wooby.Database
             return i;
         }
 
-        public static void CompileExpression(SelectStatement command, Expression expr, Context context, List<Instruction> target, PushResultKind push)
+        public static void CompileExpression(Statement statement, Expression expr, Context context, List<Instruction> target, PushResultKind push)
         {
             if (expr.IsOnlyReference())
             {
@@ -215,7 +215,7 @@ namespace wooby.Database
             {
                 // Push columns for all tables in select command
 
-                foreach (var col in context.FindTable(command.MainSource).Columns)
+                foreach (var col in context.FindTable(statement.MainSource).Columns)
                 {
                     target.Add(new Instruction()
                     {

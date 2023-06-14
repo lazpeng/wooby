@@ -17,11 +17,18 @@ namespace wooby
         Null
     }
 
+    public class ColumnFlags
+    {
+        public bool Unique = false;
+        public bool Nullable = true;
+        public bool PrimaryKey = false;
+    }
+
     public class ColumnMeta
     {
         public string Name { get; set; }
         public int Id { get; set; }
-        public bool Unique { get; set; }
+        public ColumnFlags Flags { get; set; } = new ColumnFlags();
         public ColumnType Type { get; set; }
         public TableMeta Parent { get; set; }
     }
@@ -92,13 +99,6 @@ namespace wooby
         public Function FindFunction(string Name)
         {
             return Functions.Find(v => v.Name.ToUpper() == Name.ToUpper());
-        }
-
-        public bool IsReferenceValid(ColumnReference reference)
-        {
-            return FindColumn(reference) != null ||
-                (string.IsNullOrEmpty(reference.Table) && FindFunction(reference.Column) != null) ||
-                (reference.Column == "*" && FindTable(reference) != null);
         }
     }
 }
