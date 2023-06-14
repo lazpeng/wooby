@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 using wooby.Database.Persistence;
+using wooby.Database.Defaults;
 using wooby.Parsing;
 
 namespace wooby.Database
@@ -46,6 +47,9 @@ namespace wooby.Database
                 new RowId_Function(id++),
                 new Trunc_Function(id++),
                 new Count_Function(id++),
+                new Min_Function(id++),
+                new Max_Function(id++),
+                new Sum_Function(id++),
             };
 
             foreach (var func in Functions)
@@ -792,20 +796,28 @@ namespace wooby.Database
         {
             var validAggregate = flags.Phase == QueryEvaluationPhase.Final &&
                 (flags.Origin == ExpressionOrigin.Ordering || flags.Origin == ExpressionOrigin.OutputColumn);
-            var f = exec.Context.FindFunction(call.Name);
-            if (f.IsAggregate && !validAggregate)
+            if (call.CalledVariant.IsAggregate && !validAggregate)
             {
                 throw new Exception("Illegal use of aggregate function here");
             }
 
             var arguments = new List<ColumnValue>();
-            // Evaluate the arguments
-            foreach (var arg in call.Arguments)
+            if (call.CalledVariant.IsAggregate)
             {
-                arguments.Add(EvaluateExpression(exec, arg, temp, flags));
+                // Instead, we pass an identifier for each expression
+                arguments.AddRange(
+                    call.Arguments.Select(a => new ColumnValue {Kind = ValueKind.Text, Text = FormatTempRowReferenceAggFunc(call, a)}));
+            }
+            else
+            {
+                // Evaluate the arguments
+                foreach (var arg in call.Arguments)
+                {
+                    arguments.Add(EvaluateExpression(exec, arg, temp, flags));
+                }
             }
 
-            return Functions.Find(fu => fu.Id == f.Id).WhenCalled(exec, arguments);
+            return call.Meta.WhenCalled(exec, arguments, call.CalledVariant.Identifier);
         }
 
         private static void PerformOperationOnStack(ExecutionContext exec, Operator op)
@@ -905,7 +917,7 @@ namespace wooby.Database
                         var call = node.FunctionCall;
                         if (tempRow == null || !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
                         {
-                            if (call.IsAggregate)
+                            if (call.CalledVariant.IsAggregate)
                             {
                                 if (flags.Origin == ExpressionOrigin.Grouping || flags.Origin == ExpressionOrigin.Filter)
                                 {
@@ -1006,6 +1018,11 @@ namespace wooby.Database
             }
         }
 
+        private static string FormatTempRowReferenceAggFunc(FunctionCall call, Expression param)
+        {
+            return $"_{call.CalledVariant.Identifier}_{param.FullText}";
+        }
+
         private void EvaluateCurrentRowReferences(ExecutionContext exec, Expression expr, TempRow temp, EvaluationFlags flags)
         {
             foreach (var node in expr.Nodes)
@@ -1017,12 +1034,22 @@ namespace wooby.Database
                 else if (node.Kind == Expression.NodeKind.Function)
                 {
                     var call = node.FunctionCall;
-                    if (call.IsAggregate || temp.EvaluatedReferences.ContainsKey(call.FullText))
+                    if (temp.EvaluatedReferences.ContainsKey(call.FullText))
                     {
                         continue;
                     }
 
-                    temp.EvaluatedReferences.Add(call.FullText, EvaluateFunctionCall(exec, call, temp, flags));
+                    if (call.CalledVariant.IsAggregate)
+                    {
+                        foreach (var param in call.Arguments)
+                        {
+                            temp.EvaluatedReferences.Add(FormatTempRowReferenceAggFunc(call, param), EvaluateExpression(exec, param, temp, flags));
+                        }
+                    }
+                    else
+                    {
+                        temp.EvaluatedReferences.Add(call.FullText, EvaluateFunctionCall(exec, call, temp, flags));
+                    }
                 }
             }
         }
@@ -1277,7 +1304,7 @@ namespace wooby.Database
                         {
                             throw new InvalidOperationException("Expected arguments for function call do not match the stack contents");
                         }
-                        exec.Stack.Push(Functions.Find(v => v.Id == instruction.Arg1).WhenCalled(exec, PopFunctionArguments(exec, numArgs)));
+                        exec.Stack.Push(Functions.Find(v => v.Id == instruction.Arg1).WhenCalled(exec, PopFunctionArguments(exec, numArgs), ""));
                         break;
                     case OpCode.PushNumber:
                         exec.Stack.Push(new ColumnValue() { Kind = ValueKind.Number, Number = instruction.Num1 });

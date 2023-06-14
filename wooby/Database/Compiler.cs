@@ -79,7 +79,7 @@ namespace wooby.Database
                 CompileSubExpression(0, call.Arguments[i], context, target);
             }
 
-            var func = context.FindFunction(call.Name);
+            var func = context.FindFunction(call.Meta.Name);
 
             target.Add(new Instruction() { OpCode = OpCode.CallFunction, Arg1 = func.Id, Arg2 = call.Arguments.Count });
         }

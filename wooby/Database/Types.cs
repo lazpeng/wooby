@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-
+using wooby.Database.Defaults;
 using wooby.Database.Persistence;
 using wooby.Parsing;
 
@@ -118,12 +118,10 @@ namespace wooby.Database
 
     public abstract class Function
     {
-        public abstract ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments);
-        public ColumnType ResultType { get; protected set; }
+        public abstract ColumnValue WhenCalled(ExecutionContext context, List<ColumnValue> arguments, string variantion);
+        public abstract IReadOnlyList<FunctionAccepts> Variations { get; }
         public string Name { get; protected set; }
-        public List<ColumnType> Parameters { get; protected set; }
         public long Id { get; protected set; }
-        public bool IsAggregate { get; protected set; } = false;
 
         public Function(long Id)
         {

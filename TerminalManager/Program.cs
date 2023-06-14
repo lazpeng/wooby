@@ -154,7 +154,7 @@ namespace TerminalManager
             string input;
             bool quit = false;
 
-            Console.WriteLine("Enter \\q to exit");
+            Console.WriteLine("Enter \\q to exit, \\h for help");
 
             while (!quit)
             {

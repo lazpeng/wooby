@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using wooby.Database;
+using wooby.Database.Defaults;
 
 namespace wooby.Parsing
 {
@@ -327,36 +329,20 @@ namespace wooby.Parsing
                 }
                 else
                 {
-                    var function = context.FindFunction(node.ReferenceValue.Column);
-                    if (function != null && string.IsNullOrEmpty(node.ReferenceValue.Table))
-                    {
-                        nodeType = Expression.ColumnTypeToExpressionType(function.Type);
-                    }
-                    else
-                    {
-                        throw new Exception("Unresolved reference in expression");
-                    }
+                    throw new Exception("Function from symbol reference");
                 }
             }
             else if (node.Kind == Expression.NodeKind.Function)
             {
-                var fun = context.FindFunction(node.FunctionCall.Name);
-                if (fun != null)
-                {
-                    nodeType = Expression.ColumnTypeToExpressionType(fun.Type);
-                }
-                else
-                {
-                    throw new Exception("Unresolved reference in expression");
-                }
+                nodeType = Expression.ColumnTypeToExpressionType(node.FunctionCall.CalledVariant.ResultType);
 
                 foreach (var arg in node.FunctionCall.Arguments)
                 {
                     ResolveUnresolvedReferences(arg, context, statement);
                 }
 
-                ValidateFunctionCall(context, node.FunctionCall);
-                if (fun.IsAggregate)
+                ValidateFunctionCall(node.FunctionCall);
+                if (node.FunctionCall.CalledVariant.IsAggregate)
                 {
                     expr.HasAggregateFunction = true;
                 }
@@ -404,7 +390,7 @@ namespace wooby.Parsing
             while (true)
             {
                 var next = NextToken(input, offset);
-                if (next.Kind == TokenKind.Comma && exprs.Count == 0)
+                if (next.Kind == TokenKind.Comma)
                 {
                     if (exprs.Count > 0)
                     {
@@ -436,24 +422,18 @@ namespace wooby.Parsing
             return exprs;
         }
 
-        private static void ValidateFunctionCall(Context context, FunctionCall func)
+        private static void ValidateFunctionCall(FunctionCall func)
         {
-            var function = context.FindFunction(func.Name);
-            if (function == null)
+            // Retry to find the correct variant for the call
+            func.CalledVariant = TryFindSuitableVariantForCall(func.Meta, func.Arguments);
+            if (func.CalledVariant == null)
             {
-                throw new Exception($"Undefined reference to function \"{func.Name}\"");
+                throw new Exception($"No suitable variant for function call of {func.Meta.Name} (during validation)");
             }
 
-            func.IsAggregate = function.IsAggregate;
-
-            if (function.Parameters.Count != func.Arguments.Count)
+            for (int i = 0; i < func.CalledVariant.Parameters.Count; ++i)
             {
-                throw new Exception($"Wrong number of parameters to function \"{func.Name}\"");
-            }
-
-            for (int i = 0; i < function.Parameters.Count; ++i)
-            {
-                var expected = Expression.ColumnTypeToExpressionType(function.Parameters[i]);
+                var expected = Expression.ColumnTypeToExpressionType(func.CalledVariant.Parameters[i]);
                 var argExpression = func.Arguments[i];
 
                 if ((expected != Expression.ExpressionType.Null && expected != argExpression.Type) || argExpression.IsBoolean)
@@ -461,6 +441,27 @@ namespace wooby.Parsing
                     throw new Exception($"Argument #{i} does not match the function definition");
                 }
             }
+        }
+
+        private static FunctionAccepts TryFindSuitableVariantForCall(Function meta, List<Expression> parameters)
+        {
+            var candidates = meta.Variations.Where(v => v.Parameters.Count() == parameters.Count);
+            var provided = parameters.Select(expr => expr.Type).ToList();
+            if (provided.Any(p => p == Expression.ExpressionType.Unknown))
+            {
+                // Assume the first is correct and come back later to find the correct variant. Rarely it'll vary in the important
+                // bits such as whether it's aggregate or not, with the same number of arguments
+                return candidates.First();
+            }
+            foreach (var cand in candidates)
+            {
+                if (provided.SequenceEqual(cand.Parameters.Select(Expression.ColumnTypeToExpressionType)))
+                {
+                    return cand;
+                }
+            }
+
+            throw new Exception($"No suitable function call for {meta.Name} matches the given parameters");
         }
 
         private int ParseSubExpression(string input, int offset, Context context, Statement statement, ExpressionFlags flags, Expression expr, bool root, bool resolveReferences, bool insideFunction)
@@ -626,13 +627,15 @@ namespace wooby.Parsing
                                 throw new Exception("Undefined reference to function");
                             }
 
-                            if (funcMeta.IsAggregate && !flags.AllowAggregateFunctions)
+                            var func = new FunctionCall() { Meta = funcMeta, Arguments = ParseFunctionArguments(input, ref offset, context, statement, resolveReferences) };
+                            func.CalledVariant =
+                                TryFindSuitableVariantForCall(funcMeta, func.Arguments);
+
+                            if (func.CalledVariant.IsAggregate && !flags.AllowAggregateFunctions)
                             {
                                 throw new Exception("Aggregate functions not allowed in this context");
                             }
-
-                            var func = new FunctionCall() { Name = lastReference.Column, Arguments = ParseFunctionArguments(input, ref offset, context, statement, resolveReferences) };
-
+                            
                             expr.Nodes[^1] = new Expression.Node() { Kind = Expression.NodeKind.Function, FunctionCall = func };
                             lastWasOperator = false;
                         }

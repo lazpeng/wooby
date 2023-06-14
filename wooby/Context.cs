@@ -55,19 +55,10 @@ namespace wooby
         }
     }
 
-    public class FunctionMeta
-    {
-        public string Name { get; set; }
-        public long Id { get; set; }
-        public ColumnType Type { get; set; }
-        public List<ColumnType> Parameters { get; set; }
-        public bool IsAggregate { get; set; }
-    }
-
     public class Context
     {
         public List<TableMeta> Tables { get; set; } = new List<TableMeta>();
-        public List<FunctionMeta> Functions { get; private set; } = new List<FunctionMeta>();
+        public List<Function> Functions { get; private set; } = new ();
         public string DatabaseFilename { get; set; }
         public ContextSourceType DatabaseSource { get; set; }
         public object CustomSourceData { get; set; }
@@ -86,7 +77,7 @@ namespace wooby
 
         public void AddFunction(Function v)
         {
-            Functions.Add(new FunctionMeta() { Id = v.Id, Name = v.Name, Type = v.ResultType, Parameters = v.Parameters, IsAggregate = v.IsAggregate });
+            Functions.Add(v);
         }
 
         public TableMeta FindTable(ColumnReference reference)
@@ -106,7 +97,7 @@ namespace wooby
             return null;
         }
 
-        public FunctionMeta FindFunction(string Name)
+        public Function FindFunction(string Name)
         {
             return Functions.Find(v => v.Name.ToUpper() == Name.ToUpper());
         }

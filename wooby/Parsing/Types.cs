@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using wooby.Database;
+using wooby.Database.Defaults;
 using static wooby.Parsing.Parser;
 
 namespace wooby.Parsing
@@ -46,12 +48,16 @@ namespace wooby.Parsing
         {
             // This is for any wildcard, including the syntax tablename.*
             public bool WildcardAllowed = false;
+
             // This is for the single * character, disallowed when a column has already been specified
             public bool GeneralWildcardAllowed = false;
+
             // Whether or not you can alias the expression to an identifier
             public bool IdentifierAllowed = false;
+
             // If a single-value subselect is allowed
             public bool SingleValueSubSelectAllowed = false;
+
             // If aggregate functions (e.g. SUM, COUNT) are valid in this context
             public bool AllowAggregateFunctions = false;
         }
@@ -60,6 +66,7 @@ namespace wooby.Parsing
         {
             // If the select should only return a single column
             public bool SingleValueReturn = false;
+
             // If the resulting query can stop in a unmatched parenthesis (or throw an error)
             public bool StopOnUnmatchedParenthesis = false;
         }
@@ -151,12 +158,12 @@ namespace wooby.Parsing
                 if (obj is Node node)
                 {
                     return Kind == node.Kind &&
-                       StringValue == node.StringValue &&
-                       NumberValue == node.NumberValue &&
-                       OperatorValue == node.OperatorValue &&
-                       (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue)) &&
-                       (FunctionCall == node.FunctionCall || FunctionCall.Equals(node.FunctionCall)) &&
-                       SubSelect == node.SubSelect || SubSelect.Equals(node.SubSelect);
+                        StringValue == node.StringValue &&
+                        NumberValue == node.NumberValue &&
+                        OperatorValue == node.OperatorValue &&
+                        (ReferenceValue == node.ReferenceValue || ReferenceValue.Equals(node.ReferenceValue)) &&
+                        (FunctionCall == node.FunctionCall || FunctionCall.Equals(node.FunctionCall)) &&
+                        SubSelect == node.SubSelect || SubSelect.Equals(node.SubSelect);
                 }
                 else return false;
             }
@@ -168,7 +175,8 @@ namespace wooby.Parsing
 
             public bool IsWildcard()
             {
-                return (Kind == NodeKind.Operator && OperatorValue == Operator.Asterisk) || (Kind == NodeKind.Reference && ReferenceValue.Column == "*");
+                return (Kind == NodeKind.Operator && OperatorValue == Operator.Asterisk) ||
+                       (Kind == NodeKind.Reference && ReferenceValue.Column == "*");
             }
         }
 
@@ -205,7 +213,7 @@ namespace wooby.Parsing
         {
             return new Expression
             {
-                Nodes = new List<Node> { node },
+                Nodes = new List<Node> {node},
                 Type = Type,
                 FullText = FullText,
                 Identifier = FullText,
@@ -219,13 +227,17 @@ namespace wooby.Parsing
                 return false;
             }
 
-            var nodes = Nodes.Where(p => (p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft || p.OperatorValue == Operator.ParenthesisRight)) || p.Kind == NodeKind.Reference);
+            var nodes = Nodes.Where(p =>
+                (p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft ||
+                                                  p.OperatorValue == Operator.ParenthesisRight)) ||
+                p.Kind == NodeKind.Reference);
             return nodes.Any() && nodes.First().IsWildcard();
         }
 
         public static bool IsTokenInvalidForExpressionStart(Token token)
         {
-            return new TokenKind[] { TokenKind.Keyword, TokenKind.Dot, TokenKind.SemiColon, TokenKind.Comma }.Contains(token.Kind);
+            return new TokenKind[]
+                {TokenKind.Keyword, TokenKind.Dot, TokenKind.SemiColon, TokenKind.Comma}.Contains(token.Kind);
         }
 
         public bool IsOnlyReference()
@@ -258,10 +270,11 @@ namespace wooby.Parsing
 
     public class FunctionCall
     {
-        public string Name { get; set; }
-        public bool IsAggregate { get; set; } = false;
+        public Function Meta { get; set; }
+        public FunctionAccepts CalledVariant { get; set; }
         public List<Expression> Arguments { get; set; }
         private string _fullText = null;
+
         // Get a value kind of like "Function(a, 2+2, 123, COLUMN)" from this function call
         // for caching purposes
         public string FullText
@@ -271,7 +284,8 @@ namespace wooby.Parsing
                 if (!string.IsNullOrEmpty(_fullText))
                 {
                     return _fullText;
-                } else
+                }
+                else
                 {
                     var builder = new StringBuilder();
                     foreach (var arg in Arguments)
@@ -280,9 +294,11 @@ namespace wooby.Parsing
                         {
                             builder.Append(",");
                         }
+
                         builder.Append(arg.FullText);
                     }
-                    _fullText = $"{Name}({builder})";
+
+                    _fullText = $"{Meta.Name}({builder})";
                     return _fullText;
                 }
             }
@@ -291,13 +307,13 @@ namespace wooby.Parsing
         public override bool Equals(object obj)
         {
             return obj is FunctionCall call &&
-                   Name == call.Name &&
+                   Meta.Name == call.Meta.Name &&
                    Arguments.SequenceEqual(call.Arguments);
         }
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Name, Arguments);
+            return HashCode.Combine(Meta.Name, Arguments);
         }
     }
 
@@ -313,8 +329,8 @@ namespace wooby.Parsing
         public override bool Equals(object obj)
         {
             return obj is ColumnReference reference &&
-                    Table == reference.Table &&
-                    Column == reference.Column;
+                   Table == reference.Table &&
+                   Column == reference.Column;
         }
 
         public override int GetHashCode()
@@ -363,9 +379,10 @@ namespace wooby.Parsing
 
         public ColumnReference TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
         {
-            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier || reference.Table == "")
+            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier ||
+                reference.Table == "")
             {
-                var col = context.FindColumn(new ColumnReference { Table = MainSource.Table, Column = reference.Column });
+                var col = context.FindColumn(new ColumnReference {Table = MainSource.Table, Column = reference.Column});
                 if (col != null)
                 {
                     reference.Table = MainSource.Table;
@@ -399,8 +416,9 @@ namespace wooby.Parsing
             if (obj is Ordering ordering)
             {
                 return (OrderExpression == ordering.OrderExpression || OrderExpression.Equals(OrderExpression)) &&
-                   Kind == ordering.Kind;
-            } else return false;
+                       Kind == ordering.Kind;
+            }
+            else return false;
         }
 
         public override int GetHashCode()
@@ -427,11 +445,12 @@ namespace wooby.Parsing
             if (obj is SelectStatement statement)
             {
                 return Kind == statement.Kind &&
-                   Class == statement.Class &&
-                   OutputColumns.SequenceEqual(statement.OutputColumns) &&
-                   (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
-                   (FilterConditions == statement.FilterConditions || FilterConditions.Equals(statement.FilterConditions)) &&
-                   OutputOrder.SequenceEqual(statement.OutputOrder);
+                       Class == statement.Class &&
+                       OutputColumns.SequenceEqual(statement.OutputColumns) &&
+                       (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
+                       (FilterConditions == statement.FilterConditions ||
+                        FilterConditions.Equals(statement.FilterConditions)) &&
+                       OutputOrder.SequenceEqual(statement.OutputOrder);
             }
             else return false;
         }
@@ -480,7 +499,8 @@ namespace wooby.Parsing
             Class = StatementClass.Update;
         }
 
-        public List<Tuple<ColumnReference, Expression>> Columns { get; set; } = new List<Tuple<ColumnReference, Expression>>();
+        public List<Tuple<ColumnReference, Expression>> Columns { get; set; } =
+            new List<Tuple<ColumnReference, Expression>>();
     }
 
     public class DeleteStatement : Statement

@@ -87,6 +87,10 @@ namespace wooby.Parsing
                         {
                             // TODO: Should bring all tables
                             var table = context.FindTable(query.MainSource);
+                            if (table == null)
+                            {
+                                throw new Exception($"No such table {query.MainSource}");
+                            }
 
                             foreach (var col in table.Columns)
                             {
