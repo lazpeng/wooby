@@ -49,7 +49,7 @@ namespace wooby.Database
 
         public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> _)
         {
-            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.QueryOutput.Rows.Count + 1 };
+            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.RowNumber };
         }
     }
 
@@ -82,6 +82,23 @@ namespace wooby.Database
             var date = arguments[0].Date;
             date = date.AddHours(0 - date.Hour).AddMinutes(0 - date.Minute).AddSeconds(0 - date.Second);
             return new ColumnValue() { Kind = ValueKind.Date, Date = date };
+        }
+    }
+
+    class Count_Function : Function
+    {
+        public Count_Function(long Id) : base(Id)
+        {
+            Name = "COUNT";
+            ResultType = ColumnType.Number;
+            Parameters = new List<ColumnType>();
+            IsAggregate = true;
+        }
+
+        public override ColumnValue WhenCalled(ExecutionContext exec, List<ColumnValue> arguments)
+        {
+            // Count the number of rows in TempRows
+            return new ColumnValue() { Kind = ValueKind.Number, Number = exec.TempRows.Count };
         }
     }
 
@@ -175,9 +192,14 @@ namespace wooby.Database
         {
             Find(RowId, out int index);
             
-            if (Rows.Count > index + 1)
+            if (RowId != long.MinValue)
             {
-                var row = Rows[index + 1];
+                index += 1;
+            }
+
+            if (Rows.Count > index)
+            {
+                var row = Rows[index];
                 RowId = row.RowId;
                 return row.Columns;
             }

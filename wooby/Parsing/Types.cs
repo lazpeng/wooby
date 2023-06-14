@@ -199,6 +199,18 @@ namespace wooby.Parsing
         public List<Node> Nodes { get; set; } = new List<Node>();
         public ExpressionType Type { get; set; } = ExpressionType.Unknown;
         public bool IsBoolean { get; set; } = false;
+        public bool HasAggregateFunction { get; set; } = false;
+
+        public static Expression WithSingleNode(Node node, ExpressionType Type, string FullText)
+        {
+            return new Expression
+            {
+                Nodes = new List<Node> { node },
+                Type = Type,
+                FullText = FullText,
+                Identifier = FullText,
+            };
+        }
 
         public bool IsWildcard()
         {
@@ -247,7 +259,34 @@ namespace wooby.Parsing
     public class FunctionCall
     {
         public string Name { get; set; }
+        public bool IsAggregate { get; set; } = false;
         public List<Expression> Arguments { get; set; }
+        private string _fullText = null;
+        // Get a value kind of like "Function(a, 2+2, 123, COLUMN)" from this function call
+        // for caching purposes
+        public string FullText
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(_fullText))
+                {
+                    return _fullText;
+                } else
+                {
+                    var builder = new StringBuilder();
+                    foreach (var arg in Arguments)
+                    {
+                        if (builder.Length > 0)
+                        {
+                            builder.Append(",");
+                        }
+                        builder.Append(arg.FullText);
+                    }
+                    _fullText = $"{Name}({builder})";
+                    return _fullText;
+                }
+            }
+        }
 
         public override bool Equals(object obj)
         {
@@ -317,7 +356,6 @@ namespace wooby.Parsing
         public StatementKind Kind { get; protected set; }
         public StatementClass Class { get; protected set; }
         public string OriginalText { get; set; }
-
         public ColumnReference MainSource { get; set; }
         public Expression FilterConditions { get; set; }
         public Statement Parent { get; set; } = null;
@@ -379,7 +417,7 @@ namespace wooby.Parsing
             Class = StatementClass.Select;
         }
 
-        public List<Expression> OutputColumns { get; private set; } = new List<Expression>();
+        public List<Expression> OutputColumns { get; set; } = new List<Expression>();
         public List<Ordering> OutputOrder { get; set; } = new List<Ordering>();
         public List<ColumnReference> Grouping { get; set; } = new List<ColumnReference>();
         public string Identifier { get; set; } = "";

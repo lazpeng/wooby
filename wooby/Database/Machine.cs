@@ -13,6 +13,12 @@ namespace wooby.Database
         private List<Function> Functions { get; set; }
         private List<TableData> Tables { get; set; }
         public Context Context { get; private set; } = null;
+        private static readonly List<Operator> BooleanOperators = new List<Operator> { Operator.Equal, Operator.NotEqual, Operator.LessEqual, Operator.MoreEqual, Operator.MoreThan, Operator.LessThan };
+
+        private static bool OperatorIsBoolean(Operator op)
+        {
+            return BooleanOperators.Contains(op);
+        }
 
         public Context Initialize()
         {
@@ -39,6 +45,7 @@ namespace wooby.Database
                 new RowNum_Function(id++),
                 new RowId_Function(id++),
                 new Trunc_Function(id++),
+                new Count_Function(id++),
             };
 
             foreach (var func in Functions)
@@ -432,39 +439,13 @@ namespace wooby.Database
 
         private void PrepareQueryOutput(ExecutionContext exec, SelectStatement query, Expression expr)
         {
-            if (expr.IsWildcard())
+            var id = expr.Identifier;
+            if (string.IsNullOrEmpty(id))
             {
-                if (expr.IsOnlyReference())
-                {
-                    var reference = expr.Nodes[0].ReferenceValue;
-
-                    var table = Context.FindTable(reference);
-
-                    foreach (var col in table.Columns)
-                    {
-                        exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = col.Name, Visible = true });
-                    }
-                }
-                else
-                {
-                    // Push columns for all tables in select command
-
-                    foreach (var col in Context.FindTable(query.MainSource).Columns)
-                    {
-                        exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = col.Name, Visible = true });
-                    }
-                }
+                id = expr.FullText;
             }
-            else
-            {
-                var id = expr.Identifier;
-                if (string.IsNullOrEmpty(id))
-                {
-                    id = expr.FullText;
-                }
 
-                exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = id, Visible = true });
-            }
+            exec.QueryOutput.Definition.Add(new OutputColumnMeta() { OutputName = id, Visible = true });
         }
 
         private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query, List<int> indexes, int colIndex)
@@ -541,9 +522,122 @@ namespace wooby.Database
             }
         }
 
-        private static void GroupRows(ExecutionContext exec, SelectStatement query)
+        private List<List<TempRow>> GroupRowsRecursive(ExecutionContext exec, List<TempRow> current, int level, SelectStatement query)
         {
+            var value = query.Grouping[level].Join();
+            var groups = new Dictionary<string, List<TempRow>>();
 
+            foreach (var row in current)
+            {
+                var correspondingResult = row.EvaluatedReferences[value];
+                var distinct = correspondingResult.PrettyPrint();
+                if (groups.TryGetValue(distinct, out var sub))
+                {
+                    sub.Add(row);
+                }
+                else
+                {
+                    groups.Add(distinct, new List<TempRow> { row });
+                }
+            }
+
+            if (level >= query.Grouping.Count - 1)
+            {
+                return groups.Values.ToList();
+            }
+            else
+            {
+                return groups.Values.SelectMany(rows => GroupRowsRecursive(exec, rows, level + 1, query)).ToList();
+            }
+        }
+
+        private List<TempRow> FlattenTempRows(ExecutionContext exec, List<List<TempRow>> groups, SelectStatement query)
+        {
+            var result = new List<TempRow>();
+
+            var flags = new EvaluationFlags { Origin = ExpressionOrigin.Ordering, Phase = QueryEvaluationPhase.Final };
+            // For each sub group, we get one TempRow
+            foreach (var subGroup in groups)
+            {
+                // Since it's grouped by GROUP BY and all columns are supposed to be aggregated,
+                // just evaluate the ordering expressions that may not have already been pre-cached
+                // because of aggregate functions using this sub group
+
+                exec.TempRows = subGroup;
+                foreach (var order in query.OutputOrder.Where(o => o.OrderExpression.HasAggregateFunction))
+                {
+                    EvaluateCurrentRowReferences(exec, order.OrderExpression, subGroup[0], flags);
+                }
+                result.Add(subGroup[0]);
+            }
+
+            return result;
+        }
+
+        private void GroupRows(ExecutionContext exec, SelectStatement query)
+        {
+            exec.ResetRowNumber();
+            var flags = new EvaluationFlags { Origin = ExpressionOrigin.OutputColumn, Phase = QueryEvaluationPhase.Final };
+
+            // Reset since we're gonna read from it again if needed
+            exec.MainSource.DataProvider.Seek(0);
+            // For simplicity, we only allow for grouping by a column name for now
+            // TODO: Grouping by expression
+            // Should be an easy enough fix
+            if (query.Grouping.Count > 0)
+            {
+                var originalTempRows = exec.TempRows;
+                var groups = GroupRowsRecursive(exec, originalTempRows, 0, query);
+                foreach (var group in groups)
+                {
+                    exec.MainSource.DataProvider.SeekNext();
+                    exec.TempRows = group;
+
+                    var row = new List<ColumnValue>();
+                    // For each sub group, now generate one output row
+                    foreach (var expr in query.OutputColumns)
+                    {
+                        exec.Stack.Clear();
+                        row.Add(EvaluateExpression(exec, expr, group[0], flags));
+                        while (exec.Stack.Count > 0)
+                        {
+                            row.Add(exec.PopStack());
+                        }
+                    }
+
+                    exec.QueryOutput.Rows.Add(row);
+                    exec.IncrementRowNumber();
+                }
+                exec.TempRows = FlattenTempRows(exec, groups, query);
+            }
+            else
+            {
+                foreach (var temp in exec.TempRows)
+                {
+                    exec.MainSource.DataProvider.SeekNext();
+                    var r = new List<ColumnValue>();
+                    // For each sub group, now generate one output row
+                    foreach (var expr in query.OutputColumns)
+                    {
+                        exec.Stack.Clear();
+                        r.Add(EvaluateExpression(exec, expr, temp, flags));
+                        while (exec.Stack.Count > 0)
+                        {
+                            r.Add(exec.PopStack());
+                        }
+                    }
+
+                    exec.QueryOutput.Rows.Add(r);
+                    exec.IncrementRowNumber();
+
+                    if (query.OutputColumns.Any(e => e.HasAggregateFunction))
+                    {
+                        // Since there isn't any grouping defined and an aggregate function was used,
+                        // there will only be one resulting row in the output
+                        break;
+                    }
+                }
+            }
         }
 
         private void ExecuteCreate(ExecutionContext exec, CreateStatement statement)
@@ -587,7 +681,8 @@ namespace wooby.Database
                 if (insert.Columns.Count == 0)
                 {
                     idx = i;
-                } else
+                }
+                else
                 {
                     idx = table.Columns.FindIndex(c => c.Name == insert.Columns[i]);
                 }
@@ -689,7 +784,305 @@ namespace wooby.Database
             exec.RowsAffected = affected;
         }
 
+        private ColumnValue ReadColumnReference(ExecutionContext exec, ColumnReference reference)
+        {
+            var sourceContext = GetContextForLevel(exec, reference.ParentLevel);
+            if (sourceContext.RowNumber > sourceContext.TempRows.Count - 1 || !sourceContext.TempRows[sourceContext.RowNumber].EvaluatedReferences.TryGetValue(reference.Join(), out ColumnValue value))
+            {
+                var meta = exec.Context.FindColumn(reference);
+                value = sourceContext.MainSource.DataProvider.Read(meta.Id);
+            }
+            return value;
+        }
+
+        private ColumnValue EvaluateFunctionCall(ExecutionContext exec, FunctionCall call, TempRow temp, EvaluationFlags flags)
+        {
+            var validAggregate = flags.Phase == QueryEvaluationPhase.Final &&
+                (flags.Origin == ExpressionOrigin.Ordering || flags.Origin == ExpressionOrigin.OutputColumn);
+            var f = exec.Context.FindFunction(call.Name);
+            if (f.IsAggregate && !validAggregate)
+            {
+                throw new Exception("Illegal use of aggregate function here");
+            }
+
+            var arguments = new List<ColumnValue>();
+            // Evaluate the arguments
+            foreach (var arg in call.Arguments)
+            {
+                arguments.Add(EvaluateExpression(exec, arg, temp, flags));
+            }
+
+            return Functions.Find(fu => fu.Id == f.Id).WhenCalled(exec, arguments);
+        }
+
+        private static void PerformOperationOnStack(ExecutionContext exec, Operator op)
+        {
+            switch (op)
+            {
+                case Operator.Plus:
+                    exec.Stack.Push(Sum(exec));
+                    break;
+                case Operator.Minus:
+                    exec.Stack.Push(Sub(exec));
+                    break;
+                case Operator.ForwardSlash:
+                    exec.Stack.Push(Divide(exec));
+                    break;
+                case Operator.Remainder:
+                    exec.Stack.Push(Remainder(exec));
+                    break;
+                case Operator.Asterisk:
+                    exec.Stack.Push(Multiply(exec));
+                    break;
+                case Operator.Equal:
+                    exec.Stack.Push(Equal(exec));
+                    break;
+                case Operator.NotEqual:
+                    exec.Stack.Push(NotEqual(exec));
+                    break;
+                case Operator.LessThan:
+                    exec.Stack.Push(Less(exec, false));
+                    break;
+                case Operator.MoreThan:
+                    exec.Stack.Push(Greater(exec, false));
+                    break;
+                case Operator.LessEqual:
+                    exec.Stack.Push(Less(exec, true));
+                    break;
+                case Operator.MoreEqual:
+                    exec.Stack.Push(Greater(exec, true));
+                    break;
+            }
+        }
+
+        private void PerformSubSelect(ExecutionContext exec, SelectStatement subQuery)
+        {
+            var sub = new ExecutionContext(Context)
+            {
+                Previous = exec
+            };
+            ExecuteQuery(sub, subQuery);
+
+            // Get first column of the last row in the target result
+            if (sub.QueryOutput.Rows.Count > 0)
+            {
+                var result = sub.QueryOutput.Rows.Last()[0];
+                exec.Stack.Push(result);
+            }
+            else
+            {
+                exec.Stack.Push(new ColumnValue { Kind = ValueKind.Null });
+            }
+        }
+
+        private void PushNodeColumnValueToStack(ExecutionContext exec, Expression.Node node, TempRow tempRow)
+        {
+            switch (node.Kind)
+            {
+                case Expression.NodeKind.Number:
+                    exec.Stack.Push(new ColumnValue { Kind = ValueKind.Number, Number = node.NumberValue });
+                    break;
+                case Expression.NodeKind.String:
+                    exec.Stack.Push(new ColumnValue { Kind = ValueKind.Text, Text = node.StringValue });
+                    break;
+                case Expression.NodeKind.Reference:
+                    if (tempRow == null || !tempRow.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out ColumnValue value))
+                    {
+                        value = ReadColumnReference(exec, node.ReferenceValue);
+                    }
+                    exec.Stack.Push(value);
+                    break;
+            }
+        }
+
+        private int EvaluateSubExpression(int offset, ExecutionContext exec, Expression expr, TempRow tempRow, EvaluationFlags flags)
+        {
+            var opStack = new Stack<Operator>();
+            var lastWasPrecedence = false;
+
+            int i;
+            for (i = offset; i < expr.Nodes.Count; ++i)
+            {
+                var node = expr.Nodes[i];
+
+                if (lastWasPrecedence)
+                {
+                    if (node.Kind == Expression.NodeKind.Function)
+                    {
+                        var call = node.FunctionCall;
+                        if (tempRow == null || !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                        {
+                            value = EvaluateFunctionCall(exec, call, tempRow, flags);
+                        }
+                        exec.Stack.Push(value);
+                    }
+                    else if (node.Kind == Expression.NodeKind.SubSelect)
+                    {
+                        PerformSubSelect(exec, node.SubSelect);
+                    }
+                    else
+                    {
+                        PushNodeColumnValueToStack(exec, node, tempRow);
+                    }
+                    PerformOperationOnStack(exec, opStack.Pop());
+                    lastWasPrecedence = false;
+                }
+                else if (node.Kind == Expression.NodeKind.Operator)
+                {
+                    if (node.OperatorValue == Operator.ParenthesisLeft)
+                    {
+                        i = EvaluateSubExpression(i + 1, exec, expr, tempRow, flags);
+                    }
+                    else if (node.OperatorValue == Operator.ParenthesisRight)
+                    {
+                        break;
+                    }
+
+                    if (OperatorIsBoolean(node.OperatorValue))
+                    {
+                        while (opStack.Count > 0)
+                        {
+                            PerformOperationOnStack(exec, opStack.Pop());
+                        }
+                    }
+
+                    opStack.Push(node.OperatorValue);
+
+                    switch (node.OperatorValue)
+                    {
+                        case Operator.Asterisk:
+                        case Operator.ForwardSlash:
+                        case Operator.Remainder:
+                            lastWasPrecedence = true;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                else
+                {
+                    if (node.Kind == Expression.NodeKind.Function)
+                    {
+                        var call = node.FunctionCall;
+                        if (!tempRow.EvaluatedReferences.TryGetValue(call.FullText, out ColumnValue value))
+                        {
+                            value = EvaluateFunctionCall(exec, call, tempRow, flags);
+                        }
+                        exec.Stack.Push(value);
+                    }
+                    else if (node.Kind == Expression.NodeKind.SubSelect)
+                    {
+                        PerformSubSelect(exec, node.SubSelect);
+                    }
+                    else
+                    {
+                        PushNodeColumnValueToStack(exec, node, tempRow);
+                    }
+                }
+            }
+
+            while (opStack.Count > 0)
+            {
+                PerformOperationOnStack(exec, opStack.Pop());
+            }
+
+            return i;
+        }
+
+        private ColumnValue EvaluateExpression(ExecutionContext exec, Expression expr, TempRow temp, EvaluationFlags flags)
+        {
+            EvaluateSubExpression(0, exec, expr, temp, flags);
+            return exec.PopStack();
+        }
+
+        private void EvaluateSingleReference(ExecutionContext exec, TempRow temp, ColumnReference reference)
+        {
+            if (!temp.EvaluatedReferences.ContainsKey(reference.Join()))
+            {
+                temp.EvaluatedReferences.Add(reference.Join(), ReadColumnReference(exec, reference));
+            }
+        }
+
+        private void EvaluateCurrentRowReferences(ExecutionContext exec, Expression expr, TempRow temp, EvaluationFlags flags)
+        {
+            foreach (var node in expr.Nodes)
+            {
+                if (node.Kind == Expression.NodeKind.Reference)
+                {
+                    EvaluateSingleReference(exec, temp, node.ReferenceValue);
+                }
+                else if (node.Kind == Expression.NodeKind.Function)
+                {
+                    var call = node.FunctionCall;
+                    if (call.IsAggregate || temp.EvaluatedReferences.ContainsKey(call.FullText))
+                    {
+                        continue;
+                    }
+
+                    temp.EvaluatedReferences.Add(call.FullText, EvaluateFunctionCall(exec, call, temp, flags));
+                }
+            }
+        }
+
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
+        {
+            SetupMainSource(exec, query.MainSource);
+
+            foreach (var output in query.OutputColumns)
+            {
+                PrepareQueryOutput(exec, query, output);
+            }
+
+            // Gather required info for all rows that match the filter
+            while (exec.MainSource.DataProvider.SeekNext())
+            {
+                if (query.FilterConditions != null)
+                {
+                    var filter = EvaluateExpression(exec, query.FilterConditions, null, new EvaluationFlags { Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final });
+                    if (filter.Kind != ValueKind.Boolean)
+                    {
+                        throw new Exception("Expected boolean result for WHERE clause expression");
+                    }
+
+                    if (!filter.Boolean)
+                    {
+                        continue;
+                    }
+                }
+
+                var flags = new EvaluationFlags { Phase = QueryEvaluationPhase.Caching };
+                // Row passed on filter
+                var tempRow = exec.CreateTempRow();
+                flags.Origin = ExpressionOrigin.OutputColumn;
+                foreach (var output in query.OutputColumns)
+                {
+                    EvaluateCurrentRowReferences(exec, output, tempRow, flags);
+                }
+
+                flags.Origin = ExpressionOrigin.Ordering;
+                foreach (var ordering in query.OutputOrder)
+                {
+                    EvaluateCurrentRowReferences(exec, ordering.OrderExpression, tempRow, flags);
+                }
+
+                foreach (var grouping in query.Grouping)
+                {
+                    EvaluateSingleReference(exec, tempRow, grouping);
+                }
+
+                exec.TempRows.Add(tempRow);
+                exec.IncrementRowNumber();
+            }
+            exec.ResetRowNumber();
+
+            GroupRows(exec, query);
+            OrderOutputRows(exec, query);
+            //PushAllRowsToOutput(exec, query);
+            // Final check so we don't return an empty row when no rows were found
+            CheckOutputRows(exec);
+        }
+
+        private void OldExecuteQuery(ExecutionContext exec, SelectStatement query)
         {
             // Compile all expressions
             var outputExpressions = new List<Instruction>();
