@@ -10,3 +10,4 @@ obj/
 *.lib
 *.a
 *.dylib
+TestResults/

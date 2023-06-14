@@ -8,7 +8,7 @@ namespace wooby
 {
     public static class Parser
     {
-        private enum TokenKind
+        public enum TokenKind
         {
             LiteralNumber,
             LiteralString,
@@ -54,7 +54,7 @@ namespace wooby
             { '=', Operator.Equal }
         };
 
-        private class Token
+        public class Token
         {
             public TokenKind Kind;
             public string StringValue;
@@ -103,25 +103,26 @@ namespace wooby
                 {
                     break;
                 }
+
+                ++offset;
             }
 
             return offset - original;
         }
 
-        private static Token NextToken(string input, int offset = 0)
+        public static Token NextToken(string input, int offset = 0)
         {
             if (offset >= input.Length)
                 return null;
 
             var skipped = SkipWhitespace(input, offset);
-            offset += skipped;
 
-            var result = input[offset] switch
+            var result = input[offset + skipped] switch
             {
                 ',' => new Token { Kind = TokenKind.Comma, InputLength = 1 },
                 ';' => new Token { Kind = TokenKind.SemiColon, InputLength = 1 },
                 '\'' => ParseString(input, offset),
-                _ => PeekToken(input, offset) switch
+                _ => PeekToken(input, offset + skipped) switch
                 {
                     TokenKind.Symbol => ParseSymbol(input, offset),
                     TokenKind.LiteralNumber => ParseNumber(input, offset),
@@ -138,6 +139,9 @@ namespace wooby
         {
             int originalOffset = offset;
 
+            offset += SkipWhitespace(input, offset);
+            int start = offset;
+
             foreach (var c in input[offset..])
             {
                 if ((c == '\"' && originalOffset != offset) || char.IsWhiteSpace(c) || !(char.IsDigit(c) || char.IsLetter(c)) || char.IsControl(c))
@@ -148,7 +152,7 @@ namespace wooby
                 ++offset;
             }
 
-            string symbol = input[originalOffset..offset];
+            string symbol = input[start..offset];
 
             if (keywordDict.TryGetValue(symbol.ToUpper(), out Keyword keyword))
             {
@@ -163,6 +167,10 @@ namespace wooby
         private static Token ParseString(string input, int offset)
         {
             int original = offset;
+
+            offset += SkipWhitespace(input, offset) + 1;
+            int start = offset;
+
             var lastWasEscape = false;
 
             foreach (var c in input[offset..])
@@ -179,9 +187,11 @@ namespace wooby
                 {
                     break;
                 }
+
+                ++offset;
             }
 
-            return new Token { Kind = TokenKind.LiteralString, StringValue = input[original..offset], InputLength = offset - original };
+            return new Token { Kind = TokenKind.LiteralString, StringValue = input[start..offset], InputLength = offset - original };
         }
 
         private static Token ParseNumber(string input, int offset)
@@ -190,6 +200,8 @@ namespace wooby
             int fraction = 0, sciNot = -1;
 
             int original = offset;
+
+            offset += SkipWhitespace(input, offset);
 
             foreach (var c in input[offset..])
             {
@@ -212,24 +224,25 @@ namespace wooby
                 else if (!char.IsDigit(c))
                 {
                     break;
-                }
+                } else
+                {
+                    int digit = c - '0';
 
-                int digit = c - '0';
-
-                if (sciNot >= 0)
-                {
-                    sciNot *= 10;
-                    sciNot += digit;
-                }
-                else if (fraction > 0)
-                {
-                    value += Math.Pow(0.1, fraction) * digit;
-                    fraction += 1;
-                }
-                else
-                {
-                    value *= 10;
-                    value += digit;
+                    if (sciNot >= 0)
+                    {
+                        sciNot *= 10;
+                        sciNot += digit;
+                    }
+                    else if (fraction > 0)
+                    {
+                        value += Math.Pow(0.1, fraction) * digit;
+                        fraction += 1;
+                    }
+                    else
+                    {
+                        value *= 10;
+                        value += digit;
+                    }
                 }
 
                 ++offset;
@@ -249,9 +262,11 @@ namespace wooby
 
         private static Token ParseOperator(string input, int offset)
         {
+            var original = offset;
+            offset += SkipWhitespace(input, offset);
             if (operatorDict.TryGetValue(input[offset], out Operator op))
             {
-                return new Token { Kind = TokenKind.Operator, OperatorValue = op, InputLength = 1 };
+                return new Token { Kind = TokenKind.Operator, OperatorValue = op, InputLength = offset - original + 1 };
             }
             else
             {
