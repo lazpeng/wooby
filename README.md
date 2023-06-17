@@ -14,13 +14,21 @@ Expanding a bit on the first paragraph, I also intent to test the feasibility or
 
 _Removed the roadmap. Instead I'll list below what's already "working" and what I intend to implement in the future_
 
+_unlikely = low priority, maybe never_
+
 - [ ] SELECT
     - [x] Basic column name, wildcard or expression
     - [x] Alias for each expression
     - [x] DISTINCT
-        - [ ] DISTINCT ON() / DISTINCT()
+    - [ ] COUNT
+        - [x] Basic COUNT support, without any arguments, counts all rows in the resulting query
+        - [ ] COUNT(expr) Number of rows where _expr_ is not NULL (can be achieved with WHERE _expr_ IS NOT NULL)
+        - [ ] COUNT(DINSTINCT expr) same as above but count only distinct values of _expr_ (can be achieved via existing group by clause)
+        - [ ] COUNT(*) syntactic sugar, does the same as _Basic COUNT_ above
+        - [ ] (unlikely) OVER ()
+    - [ ] Better semantic analysis for Boolean expressions (ensure expression is valid)
     - [x] Single value subselect as expression
-    - [ ] Expandable type system
+    - [x] Expandable type system
     - [ ] More basic types
     - [ ] Type promotion/casting (e.g. CURRENT_DATE() - 30)
 - [ ] Functions
@@ -28,12 +36,13 @@ _Removed the roadmap. Instead I'll list below what's already "working" and what 
     - [x] Aggregate functions
     - [ ] "generic" functions (currently they all accept a certain type as parameter and return another. Need to overload for each possible combination)
     - [ ] (somewhat) complete set of standard functions (string and list manipulation, type casting, etc)
-- [ ] FROM clause
+- [x] FROM clause
     - [x] FROM table name
-    - [ ] FROM sub select
+    - [x] FROM sub select
 - [ ] WITH clause and temp tables
     - [ ] (unlikely) recursive CTE
 - [x] WHERE clause
+    - [ ] IS / IS NOT for NULL comparison (currently works with = and !=/<>)
 - [x] GROUP BY expression
 - [x] ORDER BY list of columns
     - [ ] ORDER BY list of expressions
@@ -43,6 +52,8 @@ _Removed the roadmap. Instead I'll list below what's already "working" and what 
     - [ ] Maybe CROSS and SELF JOIN?
 - [ ] HAVING clause
 - [ ] Meta tables with info about the schema and database
+- [ ] Import CSV files into tables from the command line
+- [ ] Command line that doesn't suck
 - [ ] (big one) Data persistence and querying of data from disk
 - [ ] System.Data interfaces implementation
 
