@@ -607,19 +607,8 @@ namespace wooby.Database
             return new TempRow { RowId = MainSource.DataProvider.CurrentRowId(), RowIndex = RowNumber };
         }
 
-        public BaseValue PopStack(bool returnNull = false)
+        public BaseValue PopStack()
         {
-            if (Stack.Count == 0)
-            {
-                if (returnNull)
-                {
-                    return null;
-                } else
-                {
-                    throw new Exception("Stack is empty");
-                }
-            }
-
             return Stack.Pop();
         }
     }

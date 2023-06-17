@@ -35,6 +35,7 @@ namespace wooby
         public int Id { get; set; }
         public ColumnFlags Flags { get; set; } = new ColumnFlags();
         public ColumnType Type { get; set; }
+        public string Table { get; set; }
         public long Parent { get; set; }
     }
 
@@ -49,9 +50,14 @@ namespace wooby
 
         public TableMeta AddColumn(string ColumnName, ColumnType Type, ColumnFlags flags = null)
         {
-            var col = new ColumnMeta { Id = Columns.Count, Name = ColumnName, Parent = this.Id, Type = Type, Flags = flags ?? new ColumnFlags() };
+            var col = new ColumnMeta { Id = Columns.Count, Name = ColumnName, Parent = this.Id, Type = Type, Flags = flags ?? new ColumnFlags(), Table = Name };
             Columns.Add(col);
             return this;
+        }
+
+        public ColumnMeta FindColumn(ColumnReference reference)
+        {
+            return Columns.Find(c => c.Name.ToUpper() == reference.Column.ToUpper());
         }
     }
 
@@ -123,7 +129,7 @@ namespace wooby
 
             if (tableMeta != null)
             {
-                return tableMeta.Columns.Find(c => c.Name.ToUpper() == reference.Column.ToUpper());
+                return tableMeta.FindColumn(reference);
             }
 
             return null;

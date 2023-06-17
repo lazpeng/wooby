@@ -361,8 +361,13 @@ namespace wooby.Database
 
         private void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
         {
+            if (insert.MainSource.Kind != TableSource.SourceKind.Reference)
+            {
+                throw new WoobyDatabaseException("Cannot run manipulation on temporary query table");
+            }
+            
             var newColumns = new Dictionary<int, BaseValue>();
-            var table = exec.Context.FindTable(insert.MainSource);
+            var table = exec.Context.FindTable(insert.MainSource.Reference);
             if (table == null)
             {
                 throw new Exception("Could not find table");
@@ -476,6 +481,21 @@ namespace wooby.Database
             exec.RowsAffected = affected;
         }
 
+        private ColumnMeta FindColumn(ExecutionContext exec, ColumnReference reference)
+        {
+            if (!exec.MainSource.Meta.IsReal && (string.IsNullOrEmpty(reference.Table) || reference.Table == exec.MainSource.Meta.Name))
+            {
+                // Try to find it here first
+                var col = exec.MainSource.Meta.Columns.FirstOrDefault(c => c.Name == reference.Column);
+                if (col != null)
+                {
+                    return col;
+                }
+            }
+            
+            return exec.Context.FindColumn(reference);
+        }
+
         private BaseValue ReadColumnReference(ExecutionContext exec, ColumnReference reference)
         {
             var sourceContext = GetContextForLevel(exec, reference.ParentLevel);
@@ -483,7 +503,8 @@ namespace wooby.Database
                     .TempRows[sourceContext.RowNumber].EvaluatedReferences
                     .TryGetValue(reference.Join(), out BaseValue value))
             {
-                var meta = exec.Context.FindColumn(reference);
+                
+                var meta = FindColumn(exec, reference);
                 value = sourceContext.MainSource.DataProvider.Read(meta.Id);
             }
 
@@ -827,19 +848,35 @@ namespace wooby.Database
             CheckOutputRows(exec);
         }
 
-        private void SetupMainSource(ExecutionContext exec, long tableId)
+        private void SetupMainSource(ExecutionContext exec, TableSource source)
         {
-            var sourceData = Context.FindTable(tableId);
+            TableMeta sourceData;
+            if (source.Kind == TableSource.SourceKind.Reference)
+            {
+                sourceData = Context.FindTable(source.Reference);
+            }
+            else
+            {
+                sourceData = source.BuildMetaFromSubSelect(exec.Context);
+                // Execute sub select passed as the main source
+                var subExec = new ExecutionContext(exec.Context)
+                {
+                    Previous = exec
+                };
+                ExecuteQuery(subExec, source.SubSelect);
+                // Populate temp table
+                if (sourceData.DataProvider is InMemoryDataProvider provider)
+                {
+                    provider.SetupRows(subExec.QueryOutput.Rows.Select(r => r.Values));
+                }
+                else throw new WoobyDatabaseException("Internal error: Invalid provider for temporary query table");
+            }
+            
             exec.MainSource = new ExecutionDataSource()
             {
                 Meta = sourceData,
                 DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Columns.Count)
             };
-        }
-
-        private void SetupMainSource(ExecutionContext exec, ColumnReference source)
-        {
-            SetupMainSource(exec, Context.FindTable(source).Id);
         }
 
         public ExecutionContext Execute(Statement statement)

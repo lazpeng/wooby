@@ -94,6 +94,7 @@ namespace wooby.Parsing
             }
 
             statement.OriginalText = input[originalOffset..offset];
+            statement.InputLength = offset - originalOffset;
             return statement;
         }
     }

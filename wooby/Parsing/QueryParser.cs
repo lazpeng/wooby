@@ -99,7 +99,7 @@ namespace wooby.Parsing
                         } else
                         {
                             // TODO: Should bring all tables
-                            var table = context.FindTable(query.MainSource);
+                            var table = query.MainSource.GetMeta(context);
                             if (table == null)
                             {
                                 throw new WoobyParserException($"No such table {query.MainSource}", 0);
@@ -133,6 +133,11 @@ namespace wooby.Parsing
                 statement.Parent = parent;
             }
             statement.UsedFlags = flags;
+
+            if (flags.SkipFirstParenthesis)
+            {
+                SkipNextToken(input, ref offset);
+            }
 
             // First token is SELECT
             SkipNextToken(input, ref offset);
@@ -194,9 +199,8 @@ namespace wooby.Parsing
                 exprFlags.GeneralWildcardAllowed = false;
             } while (true);
 
-            var source = ParseReference(input, offset, context, statement, new ReferenceFlags() { TableOnly = true });
-            statement.MainSource = source;
-            offset += source.InputLength;
+            statement.MainSource = ParseTableSource(input, offset, context, statement);
+            offset += statement.MainSource.InputLength;
 
             do
             {
@@ -298,7 +302,7 @@ namespace wooby.Parsing
                 }
                 else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
                 {
-                    if (!flags.StopOnUnmatchedParenthesis)
+                    if (flags.StopOnUnmatchedParenthesis)
                     {
                         offset += next.InputLength;
                         break;
@@ -325,6 +329,7 @@ namespace wooby.Parsing
 
             offset = Math.Min(input.Length, offset);
             statement.OriginalText = input[originalOffset..offset];
+            statement.InputLength = offset - originalOffset;
 
             return statement;
         }

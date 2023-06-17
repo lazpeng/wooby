@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using wooby.Database;
 using wooby.Database.Defaults;
+using wooby.Error;
 
 namespace wooby.Parsing
 {
@@ -114,7 +115,7 @@ namespace wooby.Parsing
         private static bool IsKeywordOperator(Keyword kw, out Operator op)
         {
             const Operator defaultValue = Operator.ParenthesisLeft;
-            
+
             op = kw switch
             {
                 Keyword.And => Operator.And,
@@ -137,9 +138,9 @@ namespace wooby.Parsing
 
             var result = input[offset + skipped] switch
             {
-                ',' => new Token {Kind = TokenKind.Comma, InputLength = 1},
-                ';' => new Token {Kind = TokenKind.SemiColon, InputLength = 1},
-                '.' => new Token {Kind = TokenKind.Dot, InputLength = 1},
+                ',' => new Token {Kind = TokenKind.Comma, InputLength = 1, FullText = ","},
+                ';' => new Token {Kind = TokenKind.SemiColon, InputLength = 1, FullText = ";"},
+                '.' => new Token {Kind = TokenKind.Dot, InputLength = 1, FullText = "."},
                 '\'' => ParseString(input, offset),
                 _ => PeekToken(input, offset + skipped) switch
                 {
@@ -210,9 +211,10 @@ namespace wooby.Parsing
 
             var symbol = input[start..offset];
 
+            var fullText = input[originalOffset..offset];
             return KeywordDict.TryGetValue(symbol.ToUpper(), out var keyword)
-                ? new Token {Kind = TokenKind.Keyword, KeywordValue = keyword, InputLength = offset - originalOffset}
-                : new Token {Kind = TokenKind.Symbol, StringValue = symbol, InputLength = offset - originalOffset};
+                ? new Token {Kind = TokenKind.Keyword, KeywordValue = keyword, InputLength = offset - originalOffset, FullText = fullText}
+                : new Token {Kind = TokenKind.Symbol, StringValue = symbol, InputLength = offset - originalOffset, FullText = fullText};
         }
 
         private static Token ParseString(string input, int offset)
@@ -244,7 +246,9 @@ namespace wooby.Parsing
 
             return new Token
             {
-                Kind = TokenKind.LiteralString, StringValue = input[start..(offset - 1)],
+                Kind = TokenKind.LiteralString,
+                StringValue = input[start..(offset - 1)],
+                FullText = input[original..offset],
                 InputLength = offset - original
             };
         }
@@ -313,7 +317,11 @@ namespace wooby.Parsing
                 throw new Exception("Dangling scientific notation in number literal");
             }
 
-            return new Token {Kind = TokenKind.LiteralNumber, NumberValue = value, InputLength = offset - original};
+            return new Token
+            {
+                Kind = TokenKind.LiteralNumber, NumberValue = value, InputLength = offset - original,
+                FullText = input[original..offset],
+            };
         }
 
         private Token ParseOperator(string input, int offset)
@@ -324,7 +332,8 @@ namespace wooby.Parsing
             {
                 return new Token
                 {
-                    Kind = TokenKind.Operator, OperatorValue = op, StringValue = input[offset].ToString(),
+                    Kind = TokenKind.Operator, OperatorValue = op,
+                    FullText = input[offset].ToString(),
                     InputLength = offset - original + 2
                 };
             }
@@ -333,7 +342,9 @@ namespace wooby.Parsing
             {
                 return new Token
                 {
-                    Kind = TokenKind.Operator, OperatorValue = o, StringValue = input[offset].ToString(),
+                    Kind = TokenKind.Operator,
+                    OperatorValue = o,
+                    FullText = input[offset].ToString(),
                     InputLength = offset - original + 1
                 };
             }
@@ -369,11 +380,11 @@ namespace wooby.Parsing
             {
                 SanitizeReference(node.ReferenceValue, context, statement);
 
-                var column = context.FindColumn(node.ReferenceValue);
+                var column = statement.TryFindReferenceRecursive(context, node.ReferenceValue, 0);
 
                 if (column != null)
                 {
-                    nodeType = Expression.ColumnTypeToExpressionType(column.Type);
+                    nodeType = column.Type;
                 }
                 else if (node.ReferenceValue.Column == "*")
                 {
@@ -867,15 +878,6 @@ namespace wooby.Parsing
                     {
                         throw new Exception("Unresolved reference to column");
                     }
-
-                    if (reference.Column != "*")
-                    {
-                        var meta = context.FindTable(reference);
-                        if (meta.Columns.Find(c => c.Name == reference.Column) == null)
-                        {
-                            throw new Exception("Unresolved reference to column");
-                        }
-                    }
                 }
             }
         }
@@ -900,7 +902,8 @@ namespace wooby.Parsing
                 {
                     break;
                 }
-                else if (token.Kind != TokenKind.Symbol && (token.Kind != TokenKind.Operator || token.OperatorValue != Operator.Asterisk))
+                else if (token.Kind != TokenKind.Symbol &&
+                         (token.Kind != TokenKind.Operator || token.OperatorValue != Operator.Asterisk))
                 {
                     throw new Exception("Expected valid symbol for reference");
                 }
@@ -940,8 +943,9 @@ namespace wooby.Parsing
                     if (token.Kind == TokenKind.Dot)
                     {
                         offset += token.InputLength;
-                    } else if ((token.Kind == TokenKind.Keyword && token.KeywordValue == Keyword.As) ||
-                               token.Kind == TokenKind.Symbol)
+                    }
+                    else if ((token.Kind == TokenKind.Keyword && token.KeywordValue == Keyword.As) ||
+                             token.Kind == TokenKind.Symbol)
                     {
                         if (token.Kind == TokenKind.Keyword)
                         {
@@ -1020,6 +1024,59 @@ namespace wooby.Parsing
                 "BOOL" or "BOOLEAN" => ColumnType.Boolean,
                 _ => ColumnType.Null
             };
+        }
+
+        private TableSource ParseTableSource(string input, int offset, Context context, Statement statement)
+        {
+            var next = NextToken(input, offset);
+            if (next.Kind == TokenKind.Symbol)
+            {
+                return new TableSource
+                {
+                    Kind = TableSource.SourceKind.Reference,
+                    Reference = ParseReference(input, offset, context, statement, new ReferenceFlags {TableOnly = true})
+                };
+            }
+            else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisLeft)
+            {
+                var flags = statement.UsedFlags;
+                flags.ForceOutputIdentifiers = true;
+                flags.SkipFirstParenthesis = true;
+                flags.StopOnUnmatchedParenthesis = true;
+
+                var source = new TableSource
+                {
+                    Kind = TableSource.SourceKind.SubSelect,
+                    SubSelect = ParseSelect(input, offset, context, flags, null)
+                };
+                ResolveSelectReferences(source.SubSelect, context);
+                offset += source.InputLength;
+
+                next = NextToken(input, offset);
+                bool hasAs = false;
+                if (next.Kind == TokenKind.Keyword && next.KeywordValue == Keyword.As)
+                {
+                    hasAs = true;
+                    source.SubSelect.InputLength += next.InputLength;
+                    offset += next.InputLength;
+                }
+
+                next = NextToken(input, offset);
+                if (next.Kind == TokenKind.Symbol)
+                {
+                    source.SubSelect.Identifier = next.StringValue;
+                    source.SubSelect.InputLength += next.InputLength;
+                } else if (hasAs)
+                {
+                    throw new WoobyParserException("Expected name after AS keyword", offset, next);
+                }
+
+                return source;
+            }
+            else
+            {
+                throw new WoobyParserException("Expected valid table reference or sub-select", offset, next);
+            }
         }
 
         private int ParseWhere(string input, int offset, Context context, Statement statement)

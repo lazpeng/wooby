@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using wooby.Database;
 using wooby.Database.Defaults;
+using wooby.Error;
 using static wooby.Parsing.Parser;
 
 namespace wooby.Parsing
@@ -44,7 +45,7 @@ namespace wooby.Parsing
             }
         }
 
-        public class ExpressionFlags
+        public struct ExpressionFlags
         {
             // This is for any wildcard, including the syntax tablename.*
             public bool WildcardAllowed = false;
@@ -60,23 +61,41 @@ namespace wooby.Parsing
 
             // If aggregate functions (e.g. SUM, COUNT) are valid in this context
             public bool AllowAggregateFunctions = false;
+
+            public ExpressionFlags()
+            {
+            }
         }
 
-        public class StatementFlags
+        public struct StatementFlags
         {
             // If the select should only return a single column
             public bool SingleValueReturn = false;
 
             // If the resulting query can stop in a unmatched parenthesis (or throw an error)
             public bool StopOnUnmatchedParenthesis = false;
+            
+            // Force all output columns to have identifiers
+            public bool ForceOutputIdentifiers = false;
+            
+            // Skip first parenthesis
+            public bool SkipFirstParenthesis = false;
+
+            public StatementFlags()
+            {
+            }
         }
 
-        public class ReferenceFlags
+        public struct ReferenceFlags
         {
             public bool WildcardAllowed = false;
             public bool ResolveReferences = false;
-            public bool AliasAllowed = false;
+            public bool AliasAllowed = true;
             public bool TableOnly = false;
+
+            public ReferenceFlags()
+            {
+            }
         }
     }
 
@@ -187,6 +206,19 @@ namespace wooby.Parsing
                 ColumnType.String => ExpressionType.String,
                 ColumnType.Date => ExpressionType.Date,
                 ColumnType.Null => ExpressionType.Null,
+                _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+            };
+        }
+        
+        public static ColumnType ExpressionTypeToColumnType(ExpressionType type)
+        {
+            return type switch
+            {
+                ExpressionType.Boolean => ColumnType.Boolean,
+                ExpressionType.Number => ColumnType.Number,
+                ExpressionType.String => ColumnType.String,
+                ExpressionType.Date => ColumnType.Date,
+                ExpressionType.Null => ColumnType.Null,
                 _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
             };
         }
@@ -309,6 +341,7 @@ namespace wooby.Parsing
         public string Identifier { get; set; } = "";
         public int InputLength { get; set; }
         public int ParentLevel { get; set; }
+        public Expression.ExpressionType Type { get; set; } = Expression.ExpressionType.Unknown;
 
         public string Join()
         {
@@ -339,35 +372,145 @@ namespace wooby.Parsing
         Drop,
     }
 
+    public class TableSource
+    {
+        public enum SourceKind
+        {
+            Reference,
+            SubSelect
+        }
+        
+        public SourceKind Kind { get; set; }
+        public ColumnReference Reference { get; set; }
+        public SelectStatement SubSelect { get; set; }
+        private TableMeta _cachedMeta { get; set; }
+
+        public string Identifier
+        {
+            get
+            {
+                return Kind switch
+                {
+                    SourceKind.Reference => Reference.Identifier,
+                    SourceKind.SubSelect => SubSelect.Identifier,
+                    _ => throw new WoobyException("Unreacheable code")
+                };
+            }
+        }
+
+        public int InputLength
+        {
+            get
+            {
+                return Kind switch
+                {
+                    SourceKind.Reference => Reference.InputLength,
+                    SourceKind.SubSelect => SubSelect.InputLength,
+                    _ => throw new WoobyException("Unreacheable code")
+                };
+            }
+        }
+
+        public string Table
+        {
+            get
+            {
+                return Kind switch
+                {
+                    SourceKind.Reference => Reference.Table,
+                    SourceKind.SubSelect => Identifier,
+                    _ => throw new WoobyException("Unreacheable code")
+                };
+            }
+        }
+
+        public ColumnMeta FindReference(ColumnReference reference, Context context)
+        {
+            if (Kind == SourceKind.Reference)
+            {
+                if (string.IsNullOrEmpty(reference.Table))
+                {
+                    reference.Table = Table;
+                }
+                return context.FindColumn(reference);
+            }
+            else
+            {
+                return GetMeta(context).FindColumn(reference);
+            }
+        }
+
+        public TableMeta GetMeta(Context context)
+        {
+            return Kind switch
+            {
+                SourceKind.Reference => context.FindTable(Reference),
+                SourceKind.SubSelect => BuildMetaFromSubSelect(context),
+                _ => throw new WoobyException("Unreacheable code")
+            };
+        }
+
+        public TableMeta BuildMetaFromSubSelect(Context context)
+        {
+            if (_cachedMeta != null)
+                return _cachedMeta;
+            
+            if (Kind != SourceKind.SubSelect)
+            {
+                throw new WoobyException("Internal error: BuildMetaFromSubSelect called when source is not sub select");
+            }
+            
+            _cachedMeta = new TableMeta()
+            {
+                DataProvider = new InMemoryDataProvider(),
+                Id = -1,
+                IsReal = false,
+                IsTemporary = true,
+                Name = SubSelect.Identifier
+            };
+
+            foreach (var output in SubSelect.OutputColumns)
+            {
+                _cachedMeta.AddColumn(output.Identifier, Expression.ExpressionTypeToColumnType(output.Type));
+            }
+            _cachedMeta.DataProvider.Initialize(context, _cachedMeta);
+            
+            return _cachedMeta;
+        }
+    }
+
     public abstract class Statement
     {
         public StatementKind Kind { get; protected set; }
         public StatementClass Class { get; protected set; }
         public string OriginalText { get; set; }
-        public ColumnReference MainSource { get; set; }
+        public TableSource MainSource { get; set; }
         public Expression FilterConditions { get; set; }
         public Statement Parent { get; set; }
         public StatementFlags UsedFlags { get; set; } = new StatementFlags();
+        public int InputLength { get; set; }
 
         public ColumnReference TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
         {
-            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier ||
-                reference.Table == "")
+            if (reference.Column == "*")
+                return reference;
+            
+            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier || reference.Table == "")
             {
-                var col = context.FindColumn(new ColumnReference {Table = MainSource.Table, Column = reference.Column});
-                if (col != null || reference.Column == "*")
+                var col = MainSource.FindReference(reference, context);
+                if (col != null)
                 {
-                    reference.Table = MainSource.Table;
-                    reference.ParentLevel = level;
-                    return reference;
+                    return new ColumnReference
+                    {
+                        Table = col.Table,
+                        ParentLevel = level,
+                        Column = col.Name,
+                        Type = Expression.ColumnTypeToExpressionType(col.Type)
+                    };
                 }
             }
 
-            if (Parent != null)
-            {
-                return Parent.TryFindReferenceRecursive(context, reference, level + 1);
-            }
-            else return null;
+            return Parent?.TryFindReferenceRecursive(context, reference, level + 1);
         }
     }
 
@@ -409,7 +552,6 @@ namespace wooby.Parsing
 
         public string Identifier { get; set; } = string.Empty;
 
-        // Currently only supports true or false. TODO: More complete distinct
         public bool Distinct { get; set; }
 
         public override bool Equals(object obj)

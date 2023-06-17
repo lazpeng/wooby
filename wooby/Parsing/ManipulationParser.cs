@@ -1,14 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using wooby.Error;
 
 namespace wooby.Parsing
 {
     public partial class Parser
     {
-        private List<string> ParseTargetColumnList(string input, int offset, out int length, Context context, InsertStatement statement)
+        private List<string> ParseTargetColumnList(string input, int offset, out int length, Context context,
+            InsertStatement statement)
         {
             int originalOffset = offset;
             // ( was already skipped by caller
@@ -44,9 +43,11 @@ namespace wooby.Parsing
                 AssertTokenIsSymbol(next, "Expected symbol in INSERT column target list");
                 var column = next.StringValue;
 
-                if (context.FindColumn(new ColumnReference { Column = column, Table = statement.MainSource.Table }) == null)
+                if (statement.MainSource.FindReference(
+                        new ColumnReference {Column = column, Table = statement.MainSource.Table}, context) == null)
                 {
-                    throw new Exception($"Expected valid existing column name in target columns list, found '{column}'");
+                    throw new Exception(
+                        $"Expected valid existing column name in target columns list, found '{column}'");
                 }
 
                 list.Add(column);
@@ -56,7 +57,8 @@ namespace wooby.Parsing
             return list;
         }
 
-        private List<Expression> ParseValuesList(string input, int offset, out int length, Context context, InsertStatement statement)
+        private List<Expression> ParseValuesList(string input, int offset, out int length, Context context,
+            InsertStatement statement)
         {
             int originalOffset = offset;
             // ( was already skipped by caller
@@ -87,7 +89,8 @@ namespace wooby.Parsing
                     throw new Exception("Unexpected end of input");
                 }
 
-                var expr = ParseExpression(input, offset, context, statement, new ExpressionFlags { SingleValueSubSelectAllowed = true }, true, false);
+                var expr = ParseExpression(input, offset, context, statement,
+                    new ExpressionFlags {SingleValueSubSelectAllowed = true}, true, false);
                 list.Add(expr);
                 offset += expr.FullText.Length;
             }
@@ -96,12 +99,14 @@ namespace wooby.Parsing
             return list;
         }
 
-        private List<Tuple<ColumnReference, Expression>> ParseUpdateSetColumns(string input, int offset, out int length, Context context, UpdateStatement statement)
+        private List<Tuple<ColumnReference, Expression>> ParseUpdateSetColumns(string input, int offset, out int length,
+            Context context, UpdateStatement statement)
         {
             int originalOffset = offset;
             var result = new List<Tuple<ColumnReference, Expression>>();
             Token next;
-            var flags = new ReferenceFlags { AliasAllowed = false, ResolveReferences = true, TableOnly = false, WildcardAllowed = false };
+            var flags = new ReferenceFlags
+                {AliasAllowed = false, ResolveReferences = true, TableOnly = false, WildcardAllowed = false};
 
             while (true)
             {
@@ -109,12 +114,14 @@ namespace wooby.Parsing
                 if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
                 {
                     break;
-                } else if (next.Kind == TokenKind.Comma)
+                }
+                else if (next.Kind == TokenKind.Comma)
                 {
                     if (result.Count == 0)
                     {
                         throw new Exception("Column list starts with a comma");
-                    } else
+                    }
+                    else
                     {
                         offset += next.InputLength;
                     }
@@ -125,7 +132,8 @@ namespace wooby.Parsing
                 next = NextToken(input, offset);
                 offset += next.InputLength;
                 AssertTokenIsOperator(next, Operator.Equal, "Expected = after column name");
-                var expr = ParseExpression(input, offset, context, statement, new ExpressionFlags { SingleValueSubSelectAllowed = true }, true, false);
+                var expr = ParseExpression(input, offset, context, statement,
+                    new ExpressionFlags {SingleValueSubSelectAllowed = true}, true, false);
                 offset += expr.FullText.Length;
 
                 result.Add(new Tuple<ColumnReference, Expression>(col, expr));
@@ -147,7 +155,11 @@ namespace wooby.Parsing
             offset += next.InputLength;
 
             // Which table we are INSERTing into
-            statement.MainSource = ParseReference(input, offset, context, statement, new ReferenceFlags { TableOnly = true });
+            statement.MainSource = ParseTableSource(input, offset, context, statement);
+            if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
+            {
+                throw new WoobyParserException("Expected table reference after FROM keyword", offset);
+            }
             offset += statement.MainSource.InputLength;
 
             next = NextToken(input, offset);
@@ -177,6 +189,7 @@ namespace wooby.Parsing
             SkipNextToken(input, ref offset);
 
             statement.OriginalText = input[originalOffset..offset];
+            statement.InputLength = offset - originalOffset;
             return statement;
         }
 
@@ -187,8 +200,13 @@ namespace wooby.Parsing
 
             // First is UPDATE, next is the table we're updating
             SkipNextToken(input, ref offset);
-            statement.MainSource = ParseReference(input, offset, context, statement, new ReferenceFlags { TableOnly = true });
+            statement.MainSource = ParseTableSource(input, offset, context, statement);
+            if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
+            {
+                throw new WoobyParserException("Expected table reference after FROM keyword", offset);
+            }
             offset += statement.MainSource.InputLength;
+            
             var next = NextToken(input, offset);
             offset += next.InputLength;
             AssertTokenIsKeyword(next, Keyword.Set, "Expected SET after table name");
@@ -202,13 +220,16 @@ namespace wooby.Parsing
                 offset += next.InputLength;
                 offset += ParseWhere(input, offset, context, statement);
             }
-            else if (next.Kind == TokenKind.None) { } // Ok
+            else if (next.Kind == TokenKind.None)
+            {
+            } // Ok
             else
             {
                 throw new Exception("Unexpected token after UPDATE");
             }
 
             statement.OriginalText = input[originalOffset..offset];
+            statement.InputLength = offset - originalOffset;
             return statement;
         }
 
@@ -224,7 +245,11 @@ namespace wooby.Parsing
             offset += next.InputLength;
 
             // Which table we are DELETing from
-            statement.MainSource = ParseReference(input, offset, context, statement, new ReferenceFlags { TableOnly = true });
+            statement.MainSource = ParseTableSource(input, offset, context, statement);
+            if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
+            {
+                throw new WoobyParserException("Expected table reference after FROM keyword", offset);
+            }
             offset += statement.MainSource.InputLength;
 
             next = NextToken(input, offset);
@@ -233,13 +258,16 @@ namespace wooby.Parsing
                 offset += next.InputLength;
                 offset += ParseWhere(input, offset, context, statement);
             }
-            else if (next.Kind == TokenKind.None) { } // Ok
+            else if (next.Kind == TokenKind.None)
+            {
+            } // Ok
             else
             {
                 throw new Exception("Unexpected token after DELETE");
             }
 
             statement.OriginalText = input[originalOffset..offset];
+            statement.InputLength = offset - originalOffset;
             return statement;
         }
     }

@@ -46,7 +46,7 @@ public class Dual_DataProvider : ITableDataProvider
     }
 }
 
-public class InMemory_DataProvider : ITableDataProvider
+public class InMemoryDataProvider : ITableDataProvider
 {
     private long LastRowId = -1;
     private TableMeta Meta;
@@ -59,7 +59,7 @@ public class InMemory_DataProvider : ITableDataProvider
 
     private List<Row> Rows;
 
-    protected void SetupRows(List<List<BaseValue>> Values)
+    public void SetupRows(IEnumerable<List<BaseValue>> Values)
     {
         foreach (var row in Values)
         {
@@ -164,7 +164,7 @@ public class InMemory_DataProvider : ITableDataProvider
     }
 }
 
-public class LoveLive_DataProvider : InMemory_DataProvider
+public class LoveLive_DataProvider : InMemoryDataProvider
 {
     private class Group
     {
