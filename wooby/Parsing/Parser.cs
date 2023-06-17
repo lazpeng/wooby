@@ -420,7 +420,7 @@ namespace wooby.Parsing
             }
             else if (node.Kind == Expression.NodeKind.Null)
             {
-                nodeType = Expression.ExpressionType.Unknown;
+                nodeType = Expression.ExpressionType.Null;
             }
             else if (node.Kind == Expression.NodeKind.SubSelect)
             {
@@ -437,7 +437,7 @@ namespace wooby.Parsing
             {
                 expr.Type = nodeType;
             }
-            else if (expr.Type != nodeType)
+            else if (expr.Type != nodeType && nodeType != Expression.ExpressionType.Null)
             {
                 throw new Exception("Incompatible value types in expression");
             }

@@ -600,6 +600,9 @@ namespace wooby.Database
                 case Expression.NodeKind.String:
                     exec.Stack.Push(new TextValue(node.StringValue));
                     break;
+                case Expression.NodeKind.Null:
+                    exec.Stack.Push(new NullValue());
+                    break;
                 case Expression.NodeKind.Reference:
                     if (tempRow == null ||
                         !tempRow.Value.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out BaseValue value))

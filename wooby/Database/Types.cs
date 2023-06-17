@@ -38,7 +38,7 @@ namespace wooby.Database
         {
             Value = value;
         }
-        
+
         public override string PrettyPrint()
         {
             return Value;
@@ -94,7 +94,13 @@ namespace wooby.Database
             if (other is TextValue otherText)
             {
                 return Value == otherText.Value ? 0 : -1;
-            } else throw new WoobyIncompatibleTypesException(this, other);
+            }
+            else if (other is NullValue)
+            {
+                // FIXME: Remove when IS / IS NOT is implemented
+                return -1;
+            }
+            else throw new WoobyIncompatibleTypesException(this, other);
         }
     }
 
@@ -106,7 +112,7 @@ namespace wooby.Database
         {
             Value = value;
         }
-        
+
         public override string PrettyPrint()
         {
             return $"{Value}";
@@ -183,7 +189,8 @@ namespace wooby.Database
                 if (Value < num.Value)
                 {
                     return -1;
-                } else if (Value > num.Value)
+                }
+                else if (Value > num.Value)
                 {
                     return 1;
                 }
@@ -191,6 +198,11 @@ namespace wooby.Database
                 {
                     return 0;
                 }
+            }
+            else if (other is NullValue)
+            {
+                // FIXME: Remove when IS / IS NOT is implemented
+                return -1;
             }
             else throw new WoobyIncompatibleTypesException(this, other);
         }
@@ -245,6 +257,11 @@ namespace wooby.Database
 
         public override int Compare(BaseValue other)
         {
+            if (other is NullValue)
+            {
+                return 0;
+            }
+
             return -1;
         }
     }
@@ -274,6 +291,7 @@ namespace wooby.Database
             {
                 return new BooleanValue(Value && b.Value);
             }
+
             throw new WoobyIncompatibleTypesException(this, other);
         }
 
@@ -283,14 +301,20 @@ namespace wooby.Database
             {
                 return new BooleanValue(Value || b.Value);
             }
+
             throw new WoobyIncompatibleTypesException(this, other);
         }
-        
+
         public override int Compare(BaseValue other)
         {
             if (other is BooleanValue b)
             {
                 return Value == b.Value ? 0 : -1;
+            }
+            else if (other is NullValue)
+            {
+                // FIXME: Remove when IS / IS NOT is implemented
+                return -1;
             }
             else throw new WoobyIncompatibleTypesException(this, other);
         }
@@ -304,7 +328,7 @@ namespace wooby.Database
         {
             Value = value;
         }
-        
+
         public override string PrettyPrint()
         {
             return Value.ToString("u");
@@ -357,36 +381,14 @@ namespace wooby.Database
             {
                 return Value.CompareTo(date.Value);
             }
+            else if (other is NullValue)
+            {
+                // FIXME: Remove when IS / IS NOT is implemented
+                return -1;
+            }
             else throw new WoobyIncompatibleTypesException(this, other);
         }
     }
-    /*
-    public class ColumnValue
-    {
-        public ValueKind Kind { get; set; }
-        public string Text { get; set; }
-        public double Number { get; set; }
-        public bool Boolean { get; set; }
-        public DateTime Date { get; set; }
-
-        public string PrettyPrint()
-        {
-            return Kind switch
-            {
-                ValueKind.Null => "",
-                ValueKind.Number => $"{Number}",
-                ValueKind.Text => Text,
-                ValueKind.Boolean => Boolean ? "TRUE" : "FALSE",
-                ValueKind.Date => Date.ToString("u"),
-                _ => ""
-            };
-        }
-
-        public static ColumnValue Null()
-        {
-            return new ColumnValue { Kind = ValueKind.Null };
-        }
-    }*/
 
     public struct TempRow
     {
@@ -461,7 +463,8 @@ namespace wooby.Database
             if (MatchingRows != null && MatchingRows.Any())
             {
                 target.AddRange(exec.QueryOutput.Rows.Where(r => MatchingRows.Contains(r.RowId)));
-            } else
+            }
+            else
             {
                 foreach (var sub in SubOrdering)
                 {
@@ -505,6 +508,7 @@ namespace wooby.Database
                 RowId = Id;
                 CurrentValues = result;
             }
+
             return result != null;
         }
 
@@ -517,6 +521,7 @@ namespace wooby.Database
                 RowId = id;
                 CurrentValues = result;
             }
+
             return result != null;
         }
 
@@ -604,7 +609,7 @@ namespace wooby.Database
 
         public TempRow CreateTempRow()
         {
-            return new TempRow { RowId = MainSource.DataProvider.CurrentRowId(), RowIndex = RowNumber };
+            return new TempRow {RowId = MainSource.DataProvider.CurrentRowId(), RowIndex = RowNumber};
         }
 
         public BaseValue PopStack()
