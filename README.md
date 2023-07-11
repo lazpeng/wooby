@@ -26,12 +26,22 @@ _unlikely = low priority, maybe never_
         - [ ] COUNT(DINSTINCT expr) same as above but count only distinct values of _expr_ (can be achieved via existing group by clause)
         - [ ] COUNT(*) syntactic sugar, does the same as _Basic COUNT_ above
         - [ ] (unlikely) OVER () / PARTITION
+    - [ ] UNION ALL
+        - [ ] UNION
     - [ ] Better semantic analysis for Boolean expressions (ensure expression is valid)
     - [x] Single value subselect as expression
     - [x] Expandable type system
         - [ ] Custom conversion between types
     - [ ] More basic types
     - [ ] Type promotion/casting (e.g. CURRENT_DATE() - 30)
+- [ ] INSERT
+    - [x] Basic INSERT support with columns and values list
+    - [ ] Batch insert (VALUES (...), (...), ...)
+    - [ ] INSERT from select (INSERT INTO x SELECT ... FROM y)
+- [ ] UPDATE
+    - [x] Basic update support with SET list of columns
+- [ ] DELETE
+    - [x] Basic DELETE support
 - [ ] Functions
     - [x] Basic functions
     - [x] Aggregate functions
