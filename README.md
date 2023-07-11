@@ -26,8 +26,9 @@ _unlikely = low priority, maybe never_
         - [ ] COUNT(DINSTINCT expr) same as above but count only distinct values of _expr_ (can be achieved via existing group by clause)
         - [ ] COUNT(*) syntactic sugar, does the same as _Basic COUNT_ above
         - [ ] (unlikely) OVER () / PARTITION
-    - [ ] UNION ALL
-        - [ ] UNION
+    - [ ] UNION clause
+        - [ ] UNION ALL
+        - [ ] UNION (filtering so that union'ed rows are not duplicate in the output)
     - [ ] Better semantic analysis for Boolean expressions (ensure expression is valid)
     - [x] Single value subselect as expression
     - [x] Expandable type system
@@ -58,8 +59,8 @@ _unlikely = low priority, maybe never_
 - [x] ORDER BY list of columns
     - [ ] ORDER BY list of expressions
 - [ ] JOIN
-    - [ ] LEFT JOIN
-    - [ ] INNER JOIN
+    - [x] LEFT JOIN
+    - [x] INNER JOIN
     - [ ] RIGHT JOIN
     - [ ] OUTER JOIN
     - [ ] (unlikely) CROSS and SELF JOIN
