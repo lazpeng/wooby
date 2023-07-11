@@ -577,6 +577,14 @@ namespace wooby.Database
     {
         public TableMeta Meta { get; set; }
         public TableCursor DataProvider { get; set; }
+        public string Alias { get; set; }
+        public bool LastMatched { get; set; }
+        public bool Matched { get; set; }
+
+        public bool NameMatches(string Name)
+        {
+            return (string.IsNullOrEmpty(Alias) ? Meta.Name : Alias) == Name;
+        }
     }
 
     public class ExecutionContext
@@ -584,7 +592,15 @@ namespace wooby.Database
         public Output QueryOutput { get; } = new Output();
         public int RowsAffected { get; set; }
         public Context Context { get; }
-        public ExecutionDataSource MainSource { get; set; }
+        //public ExecutionDataSource MainSource { get; set; }
+        public ExecutionDataSource MainSource
+        {
+            get
+            {
+                return Sources.First();
+            }
+        }
+        public List<ExecutionDataSource> Sources { get; set; } = new List<ExecutionDataSource>();
         public Stack<BaseValue> Stack { get; set; } = new Stack<BaseValue>();
         public List<RowMetaData> OrderingResults { get; set; } = new List<RowMetaData>();
         public List<RowMetaData> GroupingResults { get; set; } = new List<RowMetaData>();

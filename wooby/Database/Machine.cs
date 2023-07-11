@@ -130,8 +130,16 @@ namespace wooby.Database
 
         private static void PrepareQueryOutput(ExecutionContext exec, Expression expr)
         {
-            var id = expr.Identifier;
-            if (string.IsNullOrEmpty(id))
+            string id;
+            if (!string.IsNullOrEmpty(expr.Identifier))
+            {
+                id = expr.Identifier;
+            } else if (expr.IsOnlyReference() && exec.Sources.Count == 1)
+            {
+                var re = expr.Nodes[0].ReferenceValue;
+                id = re.Column;
+            }
+            else
             {
                 id = expr.FullText;
             }
@@ -403,7 +411,7 @@ namespace wooby.Database
                 newColumns.Add(idx, value);
             }
 
-            SetupMainSource(exec, insert.MainSource);
+            SetupSources(exec, insert);
 
             exec.MainSource.DataProvider.Insert(newColumns);
             exec.RowsAffected = 1;
@@ -411,7 +419,7 @@ namespace wooby.Database
 
         private void ExecuteUpdate(ExecutionContext exec, UpdateStatement update)
         {
-            SetupMainSource(exec, update.MainSource);
+            SetupSources(exec, update);
 
             var flags = new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final};
 
@@ -454,7 +462,7 @@ namespace wooby.Database
 
         private void ExecuteDelete(ExecutionContext exec, DeleteStatement delete)
         {
-            SetupMainSource(exec, delete.MainSource);
+            SetupSources(exec, delete);
             int affected = 0;
 
             while (exec.MainSource.DataProvider.SeekNext())
@@ -481,19 +489,9 @@ namespace wooby.Database
             exec.RowsAffected = affected;
         }
 
-        private ColumnMeta FindColumn(ExecutionContext exec, ColumnReference reference)
+        private ExecutionDataSource FindSourceByReference(ExecutionContext exec, ColumnReference reference)
         {
-            if (!exec.MainSource.Meta.IsReal && (string.IsNullOrEmpty(reference.Table) || reference.Table == exec.MainSource.Meta.Name))
-            {
-                // Try to find it here first
-                var col = exec.MainSource.Meta.Columns.FirstOrDefault(c => c.Name == reference.Column);
-                if (col != null)
-                {
-                    return col;
-                }
-            }
-            
-            return exec.Context.FindColumn(reference);
+            return exec.Sources.Find(src => src.NameMatches(reference.Table));
         }
 
         private BaseValue ReadColumnReference(ExecutionContext exec, ColumnReference reference)
@@ -503,9 +501,16 @@ namespace wooby.Database
                     .TempRows[sourceContext.RowNumber].EvaluatedReferences
                     .TryGetValue(reference.Join(), out BaseValue value))
             {
-                
-                var meta = FindColumn(exec, reference);
-                value = sourceContext.MainSource.DataProvider.Read(meta.Id);
+                var source = FindSourceByReference(exec, reference);
+                if (source.Matched)
+                {
+                    var col = source.Meta.FindColumn(reference);
+                    value = source.DataProvider.Read(col.Id);
+                }
+                else
+                {
+                    value = new NullValue();
+                }
             }
 
             return value;
@@ -785,10 +790,129 @@ namespace wooby.Database
                 }
             }
         }
+        
+        private bool RecursiveSeekQuery(ExecutionContext exec, SelectStatement query, int idx, bool reset = false)
+        {
+            Expression condition;
+            bool rowIsOptional;
+            if (idx == 0)
+            {
+                condition = query.FilterConditions;
+                rowIsOptional = false;
+            }
+            else
+            {
+                condition = query.Joinings[idx - 1].Condition;
+                rowIsOptional = query.Joinings[idx - 1].Kind == JoinKind.Left; // FIXME
+            }
+
+            bool success = true;
+
+            var flags = new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final};
+            var source = exec.Sources[idx];
+            source.Matched = true;
+
+            var loopUntilRowMatches = () =>
+            {
+                do
+                {
+                    if (!source.DataProvider.SeekNext())
+                    {
+                        source.Matched = false;
+                        return false;
+                    }
+                    
+                    if (condition != null)
+                    {
+                        var filter = EvaluateExpression(exec, condition, null, flags);
+
+                        if (filter is BooleanValue filterBoolean)
+                        {
+                            if (filterBoolean.Value)
+                            {
+                                source.Matched = filterBoolean.Value;
+                                return true;
+                            }
+                        }
+                        else
+                        {
+                            throw new Exception("Expected boolean result for WHERE clause expression");
+                        }
+                    }
+                    else
+                    {
+                        source.Matched = true;
+                        return true;
+                    }
+                } while (true);
+            };
+
+            bool shouldSeek = true;
+
+            if (source.DataProvider.CurrentRowId() < 0 || reset)
+            {
+                // Not initialized or need to be reset
+                source.DataProvider.SeekFirst();
+                if (!loopUntilRowMatches())
+                {
+                    success = rowIsOptional;
+                }
+
+                source.LastMatched = false;
+                shouldSeek = false;
+            }
+
+            if (success)
+            {
+                if (idx < exec.Sources.Count - 1)
+                {
+                    do
+                    {
+                        if (RecursiveSeekQuery(exec, query, idx + 1, reset))
+                        {
+                            // We found a row in the next (or one of the next) sources, so just continue and read from it
+                            break;
+                        }
+
+                        // Since the row is optional and we couldn't find a matching row, add an empty one for the time being
+                        if (rowIsOptional && !source.LastMatched)
+                        {
+                            break;
+                        }
+                        
+                        // Couldn't find a row, so we need to seek this one and try again
+                        if (loopUntilRowMatches())
+                        {
+                            // Try to seek the next sources again
+                            reset = true;
+                            continue;
+                        }
+
+                        break;
+                    } while (true);
+                }
+                else if(shouldSeek)
+                {
+                    loopUntilRowMatches();
+                }
+            }
+
+            if (!source.Matched)
+            {
+                success = rowIsOptional && !source.LastMatched;
+                source.LastMatched = success;
+            }
+            else
+            {
+                source.LastMatched = true;
+            }
+
+            return success;
+        }
 
         private void ExecuteQuery(ExecutionContext exec, SelectStatement query)
         {
-            SetupMainSource(exec, query.MainSource);
+            SetupSources(exec, query);
             exec.ResetRowNumber();
 
             foreach (var output in query.OutputColumns)
@@ -797,26 +921,9 @@ namespace wooby.Database
             }
 
             // Gather required info for all rows that match the filter
-            while (exec.MainSource.DataProvider.SeekNext())
+            // Seek the last row in the join until none can be found for the given filter, then trace back until we seek the main source
+            while (RecursiveSeekQuery(exec, query, 0))
             {
-                if (query.FilterConditions != null)
-                {
-                    var filter = EvaluateExpression(exec, query.FilterConditions, null,
-                        new EvaluationFlags {Origin = ExpressionOrigin.Filter, Phase = QueryEvaluationPhase.Final});
-
-                    if (filter is BooleanValue filterBoolean)
-                    {
-                        if (!filterBoolean.Value)
-                        {
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        throw new Exception("Expected boolean result for WHERE clause expression");
-                    }
-                }
-
                 var flags = new EvaluationFlags {Phase = QueryEvaluationPhase.Caching};
                 // Row passed on filter
                 var tempRow = exec.CreateTempRow();
@@ -851,6 +958,18 @@ namespace wooby.Database
             CheckOutputRows(exec);
         }
 
+        private void SetupSources(ExecutionContext exec, Statement statement)
+        {
+            SetupMainSource(exec, statement.MainSource);
+            if (statement is SelectStatement query)
+            {
+                foreach (var join in query.Joinings)
+                {
+                    SetupMainSource(exec, join.Source);
+                }
+            }
+        }
+
         private void SetupMainSource(ExecutionContext exec, TableSource source)
         {
             TableMeta sourceData;
@@ -875,11 +994,12 @@ namespace wooby.Database
                 else throw new WoobyDatabaseException("Internal error: Invalid provider for temporary query table");
             }
             
-            exec.MainSource = new ExecutionDataSource()
+            exec.Sources.Add(new ExecutionDataSource()
             {
                 Meta = sourceData,
-                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Columns.Count)
-            };
+                DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Columns.Count),
+                Alias = source.Identifier
+            });
         }
 
         public ExecutionContext Execute(Statement statement)

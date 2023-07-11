@@ -7,11 +7,20 @@ namespace wooby.Parsing
 {
     public partial class Parser
     {
+        private static readonly Dictionary<Keyword, JoinKind> KeywordToJoinKind = new Dictionary<Keyword, JoinKind>()
+        {
+            [Keyword.Inner] = JoinKind.Inner,
+            [Keyword.Left] = JoinKind.Left,
+            [Keyword.Right] = JoinKind.Right
+        };
+
         private static void ResolveSelectReferences(SelectStatement statement, Context context)
         {
             foreach (var expr in statement.OutputColumns)
             {
-                if (expr.Nodes.Any(n => n.Kind == Expression.NodeKind.Reference || n.Kind == Expression.NodeKind.Function || n.Kind == Expression.NodeKind.SubSelect))
+                if (expr.Nodes.Any(n =>
+                        n.Kind == Expression.NodeKind.Reference || n.Kind == Expression.NodeKind.Function ||
+                        n.Kind == Expression.NodeKind.SubSelect))
                 {
                     ResolveUnresolvedReferences(expr, context, statement);
                 }
@@ -28,6 +37,34 @@ namespace wooby.Parsing
                 {
                     ResolveUnresolvedReferences(order.OrderExpression, context, statement);
                 }
+            }
+        }
+        
+        private static void AssertJoinsAreCorrect(SelectStatement statement)
+        {
+            // Check alias clashes
+            // check all tables with the same name have an alias
+            // check all references point to a valid table and alias
+
+            var sources = new List<TableSource> {statement.MainSource};
+            sources.AddRange(statement.Joinings.Select(s => s.Source));
+
+            var repeatedTables = sources.Select(s => s.Table).GroupBy(g => g).Where(g => g.Count() > 1).Select(g => g.Key);
+            foreach (var table in repeatedTables)
+            {
+                var repeated = sources.FindAll(t => t.Table == table);
+                // Any of the table references does not have an alias or has an duplicated one
+                if (repeated.Select(r => r.Identifier).GroupBy(g => g).Any(g => g.Count() != 1 || string.IsNullOrEmpty(g.Key)))
+                {
+                    throw new WoobyParserException("Same table appear more than once as a source without distinct aliases", 0);
+                }
+            }
+
+            // Check if any aliases are repeated
+            if (sources.Select(s => s.Identifier).Where(s => !string.IsNullOrEmpty(s)).GroupBy(s => s)
+                    .Any(g => g.Count() > 1))
+            {
+                throw new WoobyParserException("Same alias used for more than one table in statement", 0);
             }
         }
 
@@ -50,7 +87,8 @@ namespace wooby.Parsing
                         // Make sure that the aggregate function does NOT use a column or expression in the group by
                         foreach (var node in output.Nodes)
                         {
-                            if (node.Kind == Expression.NodeKind.Function && node.FunctionCall.CalledVariant.IsAggregate)
+                            if (node.Kind == Expression.NodeKind.Function &&
+                                node.FunctionCall.CalledVariant.IsAggregate)
                             {
                                 foreach (var parameter in node.FunctionCall.Arguments)
                                 {
@@ -75,6 +113,18 @@ namespace wooby.Parsing
             }
         }
 
+        private static void ExpandSourceWildcards(Context context, TableSource source, List<Expression> newOutput)
+        {
+            foreach (var col in source.GetMeta(context).Columns)
+            {
+                var reference = new ColumnReference {Column = col.Name, Table = source.CanonName};
+                var node = new Expression.Node
+                    {Kind = Expression.NodeKind.Reference, ReferenceValue = reference};
+                newOutput.Add(Expression.WithSingleNode(node, Expression.ExpressionType.Unknown,
+                    reference.Join()));
+            }
+        }
+
         private static void ExpandWildcards(Context context, SelectStatement query)
         {
             if (query.OutputColumns.Any(e => e.IsWildcard()))
@@ -85,36 +135,37 @@ namespace wooby.Parsing
                 {
                     if (expr.IsWildcard())
                     {
-                        if (expr.IsOnlyReference())
+                        if (expr.IsOnlyReference() && !string.IsNullOrEmpty(expr.Nodes[0].ReferenceValue.Table))
                         {
-                            var wild = expr.Nodes[0].ReferenceValue;
-                            var table = context.FindTable(wild);
-
-                            foreach (var col in table.Columns)
+                            TableSource source;
+                            var name = expr.Nodes[0].ReferenceValue.Table;
+                            if (query.MainSource.NameMatches(name))
                             {
-                                var reference = new ColumnReference { Column = col.Name, Table = table.Name };
-                                var node = new Expression.Node { Kind = Expression.NodeKind.Reference, ReferenceValue = reference };
-                                newOutput.Add(Expression.WithSingleNode(node, Expression.ExpressionType.Unknown, reference.Join()));
+                                source = query.MainSource;
                             }
-                        } else
-                        {
-                            // TODO: Should bring all tables
-                            var table = query.MainSource.GetMeta(context);
-                            if (table == null)
+                            else
                             {
-                                throw new WoobyParserException($"No such table {query.MainSource}", 0);
+                                source = query.Joinings.Select(j => j.Source)
+                                    .FirstOrDefault(s => s.NameMatches(name));
                             }
 
-                            foreach (var col in table.Columns)
+                            if (source == null)
                             {
-                                var reference = new ColumnReference { Column = col.Name, Table = table.Name };
-                                var node = new Expression.Node { Kind = Expression.NodeKind.Reference, ReferenceValue = reference };
-                                var colExpr = Expression.WithSingleNode(node, Expression.ExpressionType.Unknown, reference.Join());
-                                colExpr.Identifier = col.Name;
-                                newOutput.Add(colExpr);
+                                throw new WoobyParserException($"Unable to expand wildcard for reference '{name}'", 0);
+                            }
+                            
+                            ExpandSourceWildcards(context, source, newOutput);
+                        }
+                        else
+                        {
+                            ExpandSourceWildcards(context, query.MainSource, newOutput);
+                            foreach (var joinings in query.Joinings.Select(j => j.Source))
+                            {
+                                ExpandSourceWildcards(context, joinings, newOutput);
                             }
                         }
-                    } else
+                    }
+                    else
                     {
                         newOutput.Add(expr);
                     }
@@ -124,7 +175,8 @@ namespace wooby.Parsing
             }
         }
 
-        public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement parent)
+        public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags,
+            Statement parent)
         {
             int originalOffset = offset;
             var statement = new SelectStatement();
@@ -132,6 +184,7 @@ namespace wooby.Parsing
             {
                 statement.Parent = parent;
             }
+
             statement.UsedFlags = flags;
 
             if (flags.SkipFirstParenthesis)
@@ -141,7 +194,11 @@ namespace wooby.Parsing
 
             // First token is SELECT
             SkipNextToken(input, ref offset);
-            var exprFlags = new ExpressionFlags { GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true, SingleValueSubSelectAllowed = true, AllowAggregateFunctions = true };
+            var exprFlags = new ExpressionFlags
+            {
+                GeneralWildcardAllowed = true, IdentifierAllowed = true, WildcardAllowed = true,
+                SingleValueSubSelectAllowed = true, AllowAggregateFunctions = true
+            };
 
             Token next;
 
@@ -156,9 +213,11 @@ namespace wooby.Parsing
                         {
                             throw new WoobyParserException("Expected output columns", offset, next);
                         }
+
                         offset += next.InputLength;
                         break;
-                    } else if (next.KeywordValue == Keyword.Distinct)
+                    }
+                    else if (next.KeywordValue == Keyword.Distinct)
                     {
                         statement.Distinct = true;
                         offset += next.InputLength;
@@ -174,6 +233,7 @@ namespace wooby.Parsing
                     {
                         throw new WoobyParserException("Query starts with a comma", offset, next);
                     }
+
                     offset += next.InputLength;
                 }
                 else if (next.Kind == TokenKind.None)
@@ -184,8 +244,10 @@ namespace wooby.Parsing
                 next = NextToken(input, offset);
                 if (Expression.IsTokenInvalidForExpressionStart(next))
                 {
-                    throw new WoobyParserException("Unrecognized token at start of expression in output definition", offset, next);
+                    throw new WoobyParserException("Unrecognized token at start of expression in output definition",
+                        offset, next);
                 }
+
                 var expr = ParseExpression(input, offset, context, statement, exprFlags, false, false);
                 if (statement.OutputColumns.Count > 0 && expr.IsWildcard() && !expr.IsOnlyReference())
                 {
@@ -202,6 +264,51 @@ namespace wooby.Parsing
             statement.MainSource = ParseTableSource(input, offset, context, statement);
             offset += statement.MainSource.InputLength;
 
+            do
+            {
+                var joinKind = JoinKind.Inner;
+                next = NextToken(input, offset);
+                var explicitKind = false;
+
+                if (next.Kind == TokenKind.Keyword && KeywordToJoinKind.TryGetValue(next.KeywordValue, out joinKind))
+                {
+                    explicitKind = true;
+                    offset += next.InputLength;
+                }
+
+                var joinConditionFlags = new ExpressionFlags();
+
+                next = NextToken(input, offset);
+                if (next.Kind == TokenKind.Keyword)
+                {
+                    if (next.KeywordValue == Keyword.Join)
+                    {
+                        offset += next.InputLength;
+
+                        var source = ParseTableSource(input, offset, context, statement);
+                        offset += source.InputLength;
+
+                        next = NextToken(input, offset);
+                        AssertTokenIsKeyword(next, Keyword.On, "Expected ON after table JOIN");
+                        offset += next.InputLength;
+
+                        var condition = ParseExpression(input, offset, context, statement, joinConditionFlags, false,
+                            false);
+                        offset += condition.FullText.Length;
+
+                        statement.Joinings.Add(new Joining {Condition = condition, Kind = joinKind, Source = source});
+                        ResolveUnresolvedReferences(condition, context, statement);
+                    }
+                    else if (explicitKind)
+                    {
+                        throw new WoobyParserException("Expected JOIN", offset, next);
+                    }
+                    else break;
+                }
+                else break;
+            } while (true);
+
+            // FIXME: Enforce order of clauses
             do
             {
                 next = NextToken(input, offset);
@@ -230,26 +337,31 @@ namespace wooby.Parsing
                                 if (!firstOrder)
                                 {
                                     offset += next.InputLength;
-                                } else
+                                }
+                                else
                                 {
                                     throw new WoobyParserException("Order by clause cannot start with a comma", offset);
                                 }
-                            } else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+                            }
+                            else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
                             {
                                 if (flags.StopOnUnmatchedParenthesis)
                                 {
                                     offset += next.InputLength;
                                     break;
-                                } else
+                                }
+                                else
                                 {
                                     throw new WoobyParserException("Missing left parenthesis", offset, next);
                                 }
-                            } else if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
+                            }
+                            else if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
                             {
                                 if (firstOrder)
                                 {
                                     throw new WoobyParserException("Expected expression after ORDER BY", offset);
                                 }
+
                                 break;
                             }
 
@@ -257,20 +369,25 @@ namespace wooby.Parsing
 
                             var ordering = new Ordering
                             {
-                                OrderExpression = ParseExpression(input, offset, context, statement, new ExpressionFlags { SingleValueSubSelectAllowed = true }, parent == null, false)
+                                OrderExpression = ParseExpression(input, offset, context, statement,
+                                    new ExpressionFlags {SingleValueSubSelectAllowed = true}, parent == null, false)
                             };
                             offset += ordering.OrderExpression.FullText.Length;
 
                             next = NextToken(input, offset);
-                            if (next.Kind == TokenKind.Keyword && (next.KeywordValue == Keyword.Asc || next.KeywordValue == Keyword.Desc))
+                            if (next.Kind == TokenKind.Keyword &&
+                                (next.KeywordValue == Keyword.Asc || next.KeywordValue == Keyword.Desc))
                             {
-                                ordering.Kind = next.KeywordValue == Keyword.Asc ? OrderingKind.Ascending : OrderingKind.Descending;
+                                ordering.Kind = next.KeywordValue == Keyword.Asc
+                                    ? OrderingKind.Ascending
+                                    : OrderingKind.Descending;
                                 offset += next.InputLength;
                             }
 
                             statement.OutputOrder.Add(ordering);
                         }
-                    } else if (next.KeywordValue == Keyword.Group)
+                    }
+                    else if (next.KeywordValue == Keyword.Group)
                     {
                         next = NextToken(input, offset);
                         offset += next.InputLength;
@@ -285,16 +402,19 @@ namespace wooby.Parsing
                                 if (statement.Grouping.Count == 0)
                                 {
                                     throw new WoobyParserException("Expected column name after GROUP BY", offset, next);
-                                } else
+                                }
+                                else
                                 {
                                     offset += next.InputLength;
                                 }
-                            } else if (next.Kind == TokenKind.None || next.Kind == TokenKind.Keyword)
+                            }
+                            else if (next.Kind == TokenKind.None || next.Kind == TokenKind.Keyword)
                             {
                                 break;
                             }
 
-                            var expr = ParseExpression(input, offset, context, statement, new ExpressionFlags(), true, false);
+                            var expr = ParseExpression(input, offset, context, statement, new ExpressionFlags(), true,
+                                false);
                             statement.Grouping.Add(expr);
                             offset += expr.FullText.Length;
                         }
@@ -326,6 +446,7 @@ namespace wooby.Parsing
 
             AssertGroupingIsCorrect(statement);
             ExpandWildcards(context, statement);
+            AssertJoinsAreCorrect(statement);
 
             offset = Math.Min(input.Length, offset);
             statement.OriginalText = input[originalOffset..offset];

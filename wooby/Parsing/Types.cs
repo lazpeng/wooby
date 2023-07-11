@@ -237,7 +237,7 @@ namespace wooby.Parsing
                 Nodes = new List<Node> {node},
                 Type = Type,
                 FullText = FullText,
-                Identifier = FullText,
+                Identifier = "",
             };
         }
 
@@ -385,6 +385,14 @@ namespace wooby.Parsing
         public SelectStatement SubSelect { get; set; }
         private TableMeta _cachedMeta { get; set; }
 
+        public string CanonName
+        {
+            get
+            {
+                return string.IsNullOrEmpty(Identifier) ? Table : Identifier;
+            }
+        }
+
         public string Identifier
         {
             get
@@ -432,12 +440,9 @@ namespace wooby.Parsing
                 {
                     reference.Table = Table;
                 }
-                return context.FindColumn(reference);
             }
-            else
-            {
-                return GetMeta(context).FindColumn(reference);
-            }
+            
+            return GetMeta(context).FindColumn(reference);
         }
 
         public TableMeta GetMeta(Context context)
@@ -477,6 +482,11 @@ namespace wooby.Parsing
             
             return _cachedMeta;
         }
+
+        public bool NameMatches(string reference)
+        {
+            return (string.IsNullOrEmpty(Identifier) ? Table : Identifier) == reference;
+        }
     }
 
     public abstract class Statement
@@ -495,7 +505,7 @@ namespace wooby.Parsing
             if (reference.Column == "*")
                 return reference;
             
-            if (reference.Table == MainSource.Table || reference.Table == MainSource.Identifier || reference.Table == "")
+            if (MainSource.NameMatches(reference.Table) || reference.Table == "")
             {
                 var col = MainSource.FindReference(reference, context);
                 if (col != null)
@@ -507,6 +517,24 @@ namespace wooby.Parsing
                         Column = col.Name,
                         Type = Expression.ColumnTypeToExpressionType(col.Type)
                     };
+                }
+            }
+            else if (this is SelectStatement query)
+            {
+                var join = query.Joinings.FirstOrDefault(j => j.Source.NameMatches(reference.Table));
+                if (join != null)
+                {
+                    var col = join.Source.FindReference(reference, context);
+                    if (col != null)
+                    {
+                        return new ColumnReference
+                        {
+                            Table = col.Table,
+                            ParentLevel = level,
+                            Column = col.Name,
+                            Type = Expression.ColumnTypeToExpressionType(col.Type)
+                        };
+                    }
                 }
             }
 
@@ -538,6 +566,21 @@ namespace wooby.Parsing
         }
     }
 
+    public enum JoinKind
+    {
+        Inner,
+        Outer,
+        Left,
+        Right
+    }
+
+    public class Joining
+    {
+        public TableSource Source { get; set; }
+        public JoinKind Kind { get; set; } = JoinKind.Inner;
+        public Expression Condition { get; set; }
+    }
+
     public class SelectStatement : Statement
     {
         public SelectStatement()
@@ -549,6 +592,7 @@ namespace wooby.Parsing
         public List<Expression> OutputColumns { get; set; } = new();
         public List<Ordering> OutputOrder { get; set; } = new();
         public List<Expression> Grouping { get; set; } = new();
+        public List<Joining> Joinings { get; set; } = new();
 
         public string Identifier { get; set; } = string.Empty;
 
