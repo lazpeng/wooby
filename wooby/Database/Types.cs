@@ -450,9 +450,11 @@ public class TableCursor
     public bool Seek(long id)
     {
         var result = _source.Seek(id);
-
-        _rowId = id;
-        _currentValues = result;
+        if (result != null)
+        {
+            _rowId = id;
+            _currentValues = result;
+        }
 
         return result != null;
     }
@@ -461,9 +463,12 @@ public class TableCursor
     {
         var id = _rowId;
         var result = _source.SeekNext(ref id);
-
-        _rowId = id;
-        _currentValues = result;
+        
+        if (result != null)
+        {
+            _rowId = id;
+            _currentValues = result;
+        }
 
         return result != null;
     }
