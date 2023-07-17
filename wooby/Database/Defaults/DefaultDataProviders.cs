@@ -5,7 +5,7 @@ using wooby.Database.Persistence;
 
 namespace wooby.Database.Defaults;
 
-public class Dual_DataProvider : ITableDataProvider
+public class DualDataProvider : ITableDataProvider
 {
     public long Delete(long rowid)
     {
@@ -22,23 +22,19 @@ public class Dual_DataProvider : ITableDataProvider
         throw new Exception("Not supported");
     }
 
-    public IEnumerable<BaseValue> Seek(long RowId)
+    public IEnumerable<BaseValue> Seek(long rowId)
     {
-        if (RowId == 0)
-        {
-            return new List<BaseValue>();
-        }
-        else return null;
+        return rowId == 0 ? new List<BaseValue>() : null;
     }
 
-    public IEnumerable<BaseValue> SeekNext(ref long RowId)
+    public IEnumerable<BaseValue> SeekNext(ref long rowId)
     {
-        if (RowId < 0)
+        if (rowId < 0)
         {
-            RowId = 0;
+            rowId = 0;
             return Seek(0);
         }
-        else return null;
+        return null;
     }
 
     public void Initialize(Context context, TableMeta meta)
@@ -48,123 +44,109 @@ public class Dual_DataProvider : ITableDataProvider
 
 public class InMemoryDataProvider : ITableDataProvider
 {
-    private long LastRowId = -1;
-    private TableMeta Meta;
+    private long _lastRowId = -1;
+    private TableMeta _meta;
 
-    struct Row
+    private struct Row
     {
         public long RowId;
         public List<BaseValue> Columns;
     }
 
-    private List<Row> Rows;
+    private List<Row> _rows;
 
-    public void SetupRows(IEnumerable<List<BaseValue>> Values)
+    public void SetupRows(IEnumerable<List<BaseValue>> values)
     {
-        foreach (var row in Values)
+        foreach (var row in values)
         {
-            Rows.Add(new Row {RowId = ++LastRowId, Columns = row});
+            _rows.Add(new Row {RowId = ++_lastRowId, Columns = row});
         }
     }
 
-    private Row? Find(long RowId, out int index)
+    private Row? Find(long rowId, out int index)
     {
-        for (int i = 0; i < Rows.Count; ++i)
+        for (var i = 0; i < _rows.Count; ++i)
         {
-            var row = Rows[i];
-            if (row.RowId == RowId || RowId == long.MinValue)
-            {
-                index = i;
-                return row;
-            }
+            var row = _rows[i];
+            if (row.RowId != rowId && rowId != long.MinValue) continue;
+            
+            index = i;
+            return row;
         }
 
         index = -1;
-
         return null;
     }
 
-    IEnumerable<BaseValue> ITableDataProvider.Seek(long RowId)
+    IEnumerable<BaseValue> ITableDataProvider.Seek(long rowId)
     {
-        return Find(RowId, out int _)?.Columns;
+        return Find(rowId, out _)?.Columns;
     }
 
-    public IEnumerable<BaseValue> SeekNext(ref long RowId)
+    public IEnumerable<BaseValue> SeekNext(ref long rowId)
     {
-        Find(RowId, out int index);
+        Find(rowId, out var index);
 
-        if (RowId != long.MinValue)
+        if (rowId != long.MinValue)
         {
             index += 1;
         }
 
-        if (Rows.Count > index)
+        if (_rows.Count > index)
         {
-            var row = Rows[index];
-            RowId = row.RowId;
+            var row = _rows[index];
+            rowId = row.RowId;
             return row.Columns;
         }
 
-        RowId = long.MinValue;
+        rowId = long.MinValue;
         return null;
     }
 
     public long Delete(long rowid)
     {
-        Find(rowid, out int index);
-        Rows.RemoveAt(index);
-        if (index == 0 || index >= Rows.Count)
+        Find(rowid, out var index);
+        _rows.RemoveAt(index);
+        if (index == 0 || index >= _rows.Count)
         {
             return long.MinValue;
         }
-        else
-        {
-            return Rows[index - 1].RowId;
-        }
+        return _rows[index - 1].RowId;
     }
 
     public long Insert(Dictionary<int, BaseValue> values)
     {
-        var row = new Row {RowId = ++LastRowId, Columns = new List<BaseValue>(Meta.Columns.Count)};
+        var row = new Row {RowId = ++_lastRowId, Columns = new List<BaseValue>(_meta.Columns.Count)};
 
-        for (int idx = 0; idx < Meta.Columns.Count; ++idx)
+        for (var idx = 0; idx < _meta.Columns.Count; ++idx)
         {
-            if (values.TryGetValue(idx, out BaseValue v))
-            {
-                row.Columns.Add(v);
-            }
-            else
-            {
-                row.Columns.Add(new NullValue());
-            }
+            row.Columns.Add(values.TryGetValue(idx, out var v) ? v : new NullValue());
         }
 
-        Rows.Add(row);
+        _rows.Add(row);
 
         return row.RowId;
     }
 
     public void Update(long rowid, Dictionary<int, BaseValue> columns)
     {
-        var row = Find(rowid, out int _);
+        var row = Find(rowid, out var _);
 
-        if (row != null)
+        if (row == null) return;
+        foreach (var col in columns)
         {
-            foreach (var col in columns)
-            {
-                row.Value.Columns[col.Key] = col.Value;
-            }
+            row.Value.Columns[col.Key] = col.Value;
         }
     }
 
     public virtual void Initialize(Context context, TableMeta meta)
     {
-        Rows = new List<Row>();
-        Meta = meta;
+        _rows = new List<Row>();
+        _meta = meta;
     }
 }
 
-public class LoveLive_DataProvider : InMemoryDataProvider
+public class LoveLiveDataProvider : InMemoryDataProvider
 {
     private class Group
     {
@@ -177,23 +159,23 @@ public class LoveLive_DataProvider : InMemoryDataProvider
 
     private static readonly List<Group> Groups = new()
     {
-        new Group() {Id = 0, Nome = "μ's", Ano = 2010, NumIntegrantes = 9},
-        new Group() {Id = 1, Nome = "Aqours", Ano = 2016, NumIntegrantes = 9},
-        new Group() {Id = 2, Nome = "Nijigasaki School Idol Club", Ano = 2017, NumIntegrantes = 10},
-        new Group() {Id = 3, Nome = "Liella", Ano = 2020, NumIntegrantes = 5},
-        new Group() {Id = 4, Nome = "BiBi", Ano = 2011, NumIntegrantes = 3, ParentId = 0},
-        new Group() {Id = 5, Nome = "Lily white", Ano = 2011, NumIntegrantes = 3, ParentId = 0},
-        new Group() {Id = 6, Nome = "Printemps", Ano = 2011, NumIntegrantes = 3, ParentId = 0},
-        new Group() {Id = 7, Nome = "Guilty kiss", Ano = 2016, NumIntegrantes = 3, ParentId = 1},
-        new Group() {Id = 8, Nome = "CYaRon", Ano = 2016, NumIntegrantes = 3, ParentId = 1},
-        new Group() {Id = 9, Nome = "AZALEA", Ano = 2016, NumIntegrantes = 3, ParentId = 1},
+        new Group {Id = 0, Nome = "μ's", Ano = 2010, NumIntegrantes = 9},
+        new Group {Id = 1, Nome = "Aqours", Ano = 2016, NumIntegrantes = 9},
+        new Group {Id = 2, Nome = "Nijigasaki School Idol Club", Ano = 2017, NumIntegrantes = 10},
+        new Group {Id = 3, Nome = "Liella", Ano = 2020, NumIntegrantes = 5},
+        new Group {Id = 4, Nome = "BiBi", Ano = 2011, NumIntegrantes = 3, ParentId = 0},
+        new Group {Id = 5, Nome = "Lily white", Ano = 2011, NumIntegrantes = 3, ParentId = 0},
+        new Group {Id = 6, Nome = "Printemps", Ano = 2011, NumIntegrantes = 3, ParentId = 0},
+        new Group {Id = 7, Nome = "Guilty kiss", Ano = 2016, NumIntegrantes = 3, ParentId = 1},
+        new Group {Id = 8, Nome = "CYaRon", Ano = 2016, NumIntegrantes = 3, ParentId = 1},
+        new Group {Id = 9, Nome = "AZALEA", Ano = 2016, NumIntegrantes = 3, ParentId = 1},
     };
 
     public override void Initialize(Context context, TableMeta meta)
     {
         base.Initialize(context, meta);
         SetupRows(Groups.Select(g =>
-            new List<BaseValue>()
+            new List<BaseValue>
             {
                 new NumberValue(g.Id),
                 g.ParentId != null ? new NumberValue(g.ParentId.Value) : new NullValue(),

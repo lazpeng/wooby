@@ -5,40 +5,32 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace wooby.Database.Persistence
+namespace wooby.Database.Persistence;
+
+public static class PersistenceBackendHelper
 {
-    public static class PersistenceBackendHelper
+    public static ITableDataProvider GetTableDataProvider(Context context)
     {
-        public static ITableDataProvider GetTableDataProvider(Context context)
+        return context.DatabaseSource switch
         {
-            switch (context.DatabaseSource)
-            {
-                case ContextSourceType.Json:
-                    return new Json.JsonTableDataProvider();
-                default:
-                    return null;
-            }
-        }
+            ContextSourceType.Json => new Json.JsonTableDataProvider(),
+            _ => (ITableDataProvider)null
+        };
+    }
 
-        public static IContextProvider GetContextProvider(string SourceFile)
+    public static IContextProvider GetContextProvider(string sourceFile)
+    {
+        // Try to guess based on the file extension
+        var info = new FileInfo(sourceFile);
+        return info.Exists ? GetContextProviderForType(info.Extension[1..].ToLower()) : null;
+    }
+
+    public static IContextProvider GetContextProviderForType(string type)
+    {
+        return type switch
         {
-            // Try to guess based on the file extension
-            var info = new FileInfo(SourceFile);
-            if (info.Exists)
-            {
-                return GetContextProviderForType(info.Extension[1..].ToLower());
-            }
-
-            return null;
-        }
-
-        public static IContextProvider GetContextProviderForType(string Type)
-        {
-            return Type switch
-            {
-                "json" => new Json.JsonContextProvider(),
-                _ => null
-            };
-        }
+            "json" => new Json.JsonContextProvider(),
+            _ => null
+        };
     }
 }

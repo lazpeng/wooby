@@ -1,101 +1,97 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace wooby.Parsing
+namespace wooby.Parsing;
+
+public partial class Parser
 {
-    public partial class Parser
+    private CreateStatement ParseCreate(string input, int offset)
     {
-        public CreateStatement ParseCreate(string input, int offset, Context context)
+        var originalOffset = offset;
+
+        var statement = new CreateStatement();
+
+        // First token is CREATE
+        var next = NextToken(input, offset);
+        offset += next.InputLength;
+        // Second is the kind, but only TABLE is supported for now
+        next = NextToken(input, offset);
+        offset += next.InputLength;
+
+        if (!next.IsKeyword() || next.KeywordValue != Keyword.Table)
         {
-            int originalOffset = offset;
+            throw new Exception("Unexpected value after CREATE");
+        }
 
-            var statement = new CreateStatement();
+        next = NextToken(input, offset);
+        offset += next.InputLength;
 
-            // First token is CREATE
-            var next = NextToken(input, offset);
-            offset += next.InputLength;
-            // Second is the kind, but only TABLE is supported for now
-            next = NextToken(input, offset);
-            offset += next.InputLength;
+        if (next.Kind != TokenKind.Symbol)
+        {
+            throw new Exception("Expected name after CREATE TABLE");
+        }
 
-            if (!next.IsKeyword() || next.KeywordValue != Keyword.Table)
+        statement.Name = next.StringValue;
+
+        next = NextToken(input, offset);
+        offset += next.InputLength;
+        if (next.IsOperator() && next.OperatorValue != Operator.ParenthesisLeft)
+        {
+            throw new Exception("Expected ( after table name");
+        }
+
+        while (true)
+        {
+            if (offset >= input.Length)
             {
-                throw new Exception("Unexpected value after CREATE");
+                throw new Exception("Unexpected end of input");
             }
 
             next = NextToken(input, offset);
-            offset += next.InputLength;
 
-            if (next.Kind != TokenKind.Symbol)
+            if (next.IsOperator() && next.OperatorValue == Operator.ParenthesisRight)
             {
-                throw new Exception("Expected name after CREATE TABLE");
+                offset += next.InputLength;
+                break;
             }
-
-            statement.Name = next.StringValue;
-
-            next = NextToken(input, offset);
-            offset += next.InputLength;
-            if (next.IsOperator() && next.OperatorValue != Operator.ParenthesisLeft)
+            if (next.Kind == TokenKind.Comma)
             {
-                throw new Exception("Expected ( after table name");
-            }
-
-            while (true)
-            {
-                if (offset >= input.Length)
+                if (statement.Columns.Count == 0)
                 {
-                    throw new Exception("Unexpected end of input");
+                    throw new Exception("Column list cannot start with a comma");
                 }
-
-                next = NextToken(input, offset);
-
-                if (next.IsOperator() && next.OperatorValue == Operator.ParenthesisRight)
-                {
-                    offset += next.InputLength;
-                    break;
-                } else if (next.Kind == TokenKind.Comma)
-                {
-                    if (statement.Columns.Count == 0)
-                    {
-                        throw new Exception("Column list cannot start with a comma");
-                    }
-
-                    offset += next.InputLength;
-                    next = NextToken(input, offset);
-                }
-
-                // Name of the column
 
                 offset += next.InputLength;
-                if (next.Kind != TokenKind.Symbol)
-                {
-                    throw new Exception("Expected column name");
-                }
-
-                var name = next.StringValue;
-
-                var type = ParseColumnType(input, offset, out int delta);
-                offset += delta;
-
-                if (type == ColumnType.Null)
-                {
-                    throw new Exception($"Expected type for column '{name}'");
-                }
-
-                statement.Columns.Add(new ColumnNameTypeDef { Name = name, Type = type });
+                next = NextToken(input, offset);
             }
 
-            if (statement.Columns.Count == 0)
+            // Name of the column
+
+            offset += next.InputLength;
+            if (next.Kind != TokenKind.Symbol)
             {
-                throw new Exception("Cannot create an empty table");
+                throw new Exception("Expected column name");
             }
 
-            statement.OriginalText = input[originalOffset..offset];
-            statement.InputLength = offset - originalOffset;
-            return statement;
+            var name = next.StringValue;
+
+            var type = ParseColumnType(input, offset, out var delta);
+            offset += delta;
+
+            if (type == ColumnType.Null)
+            {
+                throw new Exception($"Expected type for column '{name}'");
+            }
+
+            statement.Columns.Add(new ColumnNameTypeDef { Name = name, Type = type });
         }
+
+        if (statement.Columns.Count == 0)
+        {
+            throw new Exception("Cannot create an empty table");
+        }
+
+        statement.OriginalText = input[originalOffset..offset];
+        statement.InputLength = offset - originalOffset;
+        return statement;
     }
 }

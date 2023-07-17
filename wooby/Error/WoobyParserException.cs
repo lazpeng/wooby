@@ -4,23 +4,23 @@ namespace wooby.Error;
 
 public class WoobyParserException : WoobyException
 {
-    public WoobyParserException(string Message, int At, string CurrentToken = "") : base(FormatMessage(Message, At, CurrentToken))
+    public WoobyParserException(string message, int at, string currentToken = "") : base(FormatMessage(message, at, currentToken))
     {
     }
 
-    public WoobyParserException(string Message, int At, Parser.Token CurrentToken) : this(Message, At,
-        CurrentToken.FullText)
+    public WoobyParserException(string message, int at, Parser.Token currentToken) : this(message, at,
+        currentToken.FullText)
     {
     }
 
-    private static string FormatMessage(string Message, int At, string CurrentToken)
+    private static string FormatMessage(string message, int at, string currentToken)
     {
         var near = "";
-        if (string.IsNullOrEmpty(CurrentToken))
+        if (string.IsNullOrEmpty(currentToken))
         {
-            near = $"(near {CurrentToken})";
+            near = $"(near {currentToken})";
         }
 
-        return $"Error at {At} {near} : {Message}";
+        return $"Error at {at} {near} : {message}";
     }
 }

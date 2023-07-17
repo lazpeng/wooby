@@ -1,30 +1,31 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using wooby.Error;
 
 namespace wooby.Database.Defaults;
 
 public class FunctionAccepts
 {
-    public string Identifier { get; set; }
-    public ColumnType ResultType { get; set; }
-    public IReadOnlyList<ColumnType> Parameters { get; set; }
-    public bool IsAggregate { get; set; }
+    public string Identifier { get; init; }
+    public ColumnType ResultType { get; init; }
+    public IReadOnlyList<ColumnType> Parameters { get; init; }
+    public bool IsAggregate { get; init; }
 }
 
-class CurrentDate_Function : Function
+internal class CurrentDateFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
         new FunctionAccepts
         {
-            Identifier = String.Empty,
-            Parameters = new ColumnType[] { },
+            Identifier = string.Empty,
+            Parameters = Array.Empty<ColumnType>(),
             ResultType = ColumnType.Date
         }
     };
 
-    public CurrentDate_Function(int Id) : base(Id)
+    public CurrentDateFunction(int id) : base(id)
     {
         Name = "CURRENT_DATE";
     }
@@ -35,19 +36,19 @@ class CurrentDate_Function : Function
     }
 }
 
-class DatabaseName_Function : Function
+internal class DatabaseNameFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
         new FunctionAccepts
         {
-            Identifier = String.Empty,
-            Parameters = new ColumnType[] { },
+            Identifier = string.Empty,
+            Parameters = Array.Empty<ColumnType>(),
             ResultType = ColumnType.String
         }
     };
 
-    public DatabaseName_Function(int Id) : base(Id)
+    public DatabaseNameFunction(int id) : base(id)
     {
         Name = "DBNAME";
     }
@@ -58,19 +59,19 @@ class DatabaseName_Function : Function
     }
 }
 
-class RowNum_Function : Function
+internal class RowNumFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
         new FunctionAccepts
         {
-            Identifier = String.Empty,
-            Parameters = new ColumnType[] { },
+            Identifier = string.Empty,
+            Parameters = Array.Empty<ColumnType>(),
             ResultType = ColumnType.Number
         }
     };
 
-    public RowNum_Function(int Id) : base(Id)
+    public RowNumFunction(int id) : base(id)
     {
         Name = "ROWNUM";
     }
@@ -81,19 +82,19 @@ class RowNum_Function : Function
     }
 }
 
-class RowId_Function : Function
+internal class RowIdFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
         new FunctionAccepts
         {
-            Identifier = String.Empty,
-            Parameters = new ColumnType[] { },
+            Identifier = string.Empty,
+            Parameters = Array.Empty<ColumnType>(),
             ResultType = ColumnType.Number
         }
     };
 
-    public RowId_Function(int Id) : base(Id)
+    public RowIdFunction(int id) : base(id)
     {
         Name = "ROWID";
     }
@@ -104,50 +105,47 @@ class RowId_Function : Function
     }
 }
 
-class Trunc_Function : Function
+internal class TruncFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
-        new FunctionAccepts()
+        new FunctionAccepts
         {
-            Identifier = String.Empty,
-            Parameters = new[] {ColumnType.Date},
+            Identifier = string.Empty,
+            Parameters = new[] { ColumnType.Date },
             ResultType = ColumnType.Date
         }
     };
 
-    public Trunc_Function(int Id) : base(Id)
+    public TruncFunction(int id) : base(id)
     {
         Name = "TRUNC";
     }
 
     public override BaseValue WhenCalled(ExecutionContext exec, List<BaseValue> arguments, string variation)
     {
-        if (arguments[0] is DateValue d)
-        {
-            var date = d.Value;
-            date = date.AddHours(0 - date.Hour).AddMinutes(0 - date.Minute).AddSeconds(0 - date.Second);
-            return new DateValue(date);
-        }
+        if (arguments[0] is not DateValue d) return new NullValue();
 
-        return new NullValue();
+        var date = d.Value;
+        date = date.AddHours(0 - date.Hour).AddMinutes(0 - date.Minute).AddSeconds(0 - date.Second);
+        return new DateValue(date);
     }
 }
 
-class Count_Function : Function
+internal class CountFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
-        new FunctionAccepts()
+        new FunctionAccepts
         {
             Identifier = "agg",
             IsAggregate = true,
-            Parameters = new ColumnType[] { },
+            Parameters = Array.Empty<ColumnType>(),
             ResultType = ColumnType.Number
         }
     };
 
-    public Count_Function(int Id) : base(Id)
+    public CountFunction(int id) : base(id)
     {
         Name = "COUNT";
     }
@@ -159,113 +157,131 @@ class Count_Function : Function
     }
 }
 
-class Min_Function : Function
+internal class MinFunction : Function
 {
-    
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
-        new FunctionAccepts()
+        new FunctionAccepts
         {
             Identifier = "regular",
             IsAggregate = false,
-            Parameters = new[] {ColumnType.Number, ColumnType.Number},
+            Parameters = new[] { ColumnType.Number, ColumnType.Number },
             ResultType = ColumnType.Number
         },
-        new FunctionAccepts()
+        new FunctionAccepts
         {
             Identifier = "agg",
             IsAggregate = true,
-            Parameters = new[] {ColumnType.Number},
+            Parameters = new[] { ColumnType.Number },
             ResultType = ColumnType.Number
         }
     };
-    
-    public Min_Function(int Id) : base(Id)
+
+    public MinFunction(int id) : base(id)
     {
         Name = "MIN";
     }
 
-    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion)
+    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variation)
     {
-        // FIXME: Terrible
         IEnumerable<double> data;
-        if (variantion == "regular")
+        if (variation == "regular")
         {
-            data = arguments.Select(a => (a as NumberValue).Value);
+            data = arguments.Select(a => ((NumberValue)a).Value);
         }
         else
         {
-            data = context.TempRows.Select(r => (r.EvaluatedReferences[(arguments[0] as TextValue).Value] as NumberValue).Value);
+            if (arguments[0] is TextValue eval)
+            {
+                data = context.TempRows.Select(r => ((NumberValue)r.EvaluatedReferences[eval.Value]).Value);
+            }
+            else
+                throw new WoobyDatabaseException(
+                    "Internal error: Expected evaluated reference name for aggregate function call");
         }
+
         var sorted = data.OrderBy(v => v);
         return new NumberValue(sorted.First());
     }
 }
 
-class Max_Function : Function
+internal class MaxFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
-        new FunctionAccepts()
+        new FunctionAccepts
         {
             Identifier = "regular",
             IsAggregate = false,
-            Parameters = new[] {ColumnType.Number, ColumnType.Number},
+            Parameters = new[] { ColumnType.Number, ColumnType.Number },
             ResultType = ColumnType.Number
         },
-        new FunctionAccepts()
+        new FunctionAccepts
         {
             Identifier = "agg",
             IsAggregate = true,
-            Parameters = new[] {ColumnType.Number},
+            Parameters = new[] { ColumnType.Number },
             ResultType = ColumnType.Number
         }
     };
-    
-    public Max_Function(int Id) : base(Id)
+
+    public MaxFunction(int id) : base(id)
     {
         Name = "MAX";
     }
 
-    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion)
+    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variation)
     {
         // FIXME
         IEnumerable<double> data;
-        if (variantion == "regular")
+        if (variation == "regular")
         {
-            data = arguments.Select(a => (a as NumberValue).Value);
+            data = arguments.Select(a => ((NumberValue)a).Value);
         }
         else
         {
-            data = context.TempRows.Select(r => (r.EvaluatedReferences[(arguments[0] as TextValue).Value] as NumberValue).Value);
+            if (arguments[0] is TextValue eval)
+            {
+                data = context.TempRows.Select(r => ((NumberValue)r.EvaluatedReferences[eval.Value]).Value);
+            }
+            else
+                throw new WoobyDatabaseException(
+                    "Internal error: Expected evaluated reference name for aggregate function call");
         }
+
         var sorted = data.OrderByDescending(v => v);
         return new NumberValue(sorted.First());
     }
 }
 
-class Sum_Function : Function
+internal class SumFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
-        new FunctionAccepts()
+        new FunctionAccepts
         {
             Identifier = "",
             IsAggregate = true,
-            Parameters = new[] {ColumnType.Number},
+            Parameters = new[] { ColumnType.Number },
             ResultType = ColumnType.Number
         }
     };
 
-    public Sum_Function(int Id) : base(Id)
+    public SumFunction(int id) : base(id)
     {
         Name = "SUM";
     }
 
-    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variantion)
+    public override BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variation)
     {
         // FIXME
-        var result = context.TempRows.Select(r => (r.EvaluatedReferences[(arguments[0] as TextValue).Value] as NumberValue).Value).Sum();
+        if (arguments[0] is not TextValue eval)
+        {
+            throw new WoobyDatabaseException(
+                "Internal error: Expected evaluated reference name for aggregate function call");
+        }
+
+        var result = context.TempRows.Select(r => ((NumberValue)r.EvaluatedReferences[eval.Value]).Value).Sum();
         return new NumberValue(result);
     }
 }

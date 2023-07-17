@@ -2,7 +2,7 @@ namespace wooby.Error;
 
 public class WoobyDatabaseException : WoobyException
 {
-    public WoobyDatabaseException(string Message) : base(Message)
+    public WoobyDatabaseException(string message) : base(message)
     {
     }
 }
