@@ -82,8 +82,7 @@ public partial class Parser
             {
                 // Make sure that the aggregate function does NOT use a column or expression in the group by
                 if (output.Nodes
-                    .Where(node => node.Kind == Expression.NodeKind.Function &&
-                                   node.FunctionCall.CalledVariant.IsAggregate)
+                    .Where(node => node is { Kind: Expression.NodeKind.Function, FunctionCall.CalledVariant.IsAggregate: true })
                     .Any(node => node.FunctionCall.Arguments.Any(p => query.Grouping.Contains(p))))
                 {
                     throw new WoobyParserException(
@@ -123,7 +122,7 @@ public partial class Parser
             {
                 if (expr.IsOnlyReference() && !string.IsNullOrEmpty(expr.Nodes[0].ReferenceValue.Table))
                 {
-                    TableSource source;
+                    TableSource? source;
                     var name = expr.Nodes[0].ReferenceValue.Table;
                     if (query.MainSource.NameMatches(name))
                     {
@@ -145,9 +144,9 @@ public partial class Parser
                 else
                 {
                     ExpandSourceWildcards(context, query.MainSource, newOutput);
-                    foreach (var joinings in query.Joins.Select(j => j.Source))
+                    foreach (var joins in query.Joins.Select(j => j.Source))
                     {
-                        ExpandSourceWildcards(context, joinings, newOutput);
+                        ExpandSourceWildcards(context, joins, newOutput);
                     }
                 }
             }
@@ -160,7 +159,7 @@ public partial class Parser
         query.OutputColumns = newOutput;
     }
 
-    public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement parent)
+    public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement? parent)
     {
         var originalOffset = offset;
         var statement = new SelectStatement();
@@ -241,7 +240,7 @@ public partial class Parser
             statement.OutputColumns.Add(expr);
             offset += expr.FullText.Length;
 
-            // Disallow general wildflags after first column
+            // Disallow general wildcards after first column
             exprFlags.GeneralWildcardAllowed = false;
         } while (true);
 
@@ -327,7 +326,7 @@ public partial class Parser
                                 throw new WoobyParserException("Order by clause cannot start with a comma", offset);
                             }
                         }
-                        else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+                        else if (next is { Kind: TokenKind.Operator, OperatorValue: Operator.ParenthesisRight })
                         {
                             if (!flags.StopOnUnmatchedParenthesis)
                                 throw new WoobyParserException("Missing left parenthesis", offset, next);
@@ -396,14 +395,12 @@ public partial class Parser
                     }
                 }
             }
-            else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+            else if (next is { Kind: TokenKind.Operator, OperatorValue: Operator.ParenthesisRight })
             {
-                if (flags.StopOnUnmatchedParenthesis)
-                {
-                    offset += next.InputLength;
-                    break;
-                }
-                throw new WoobyParserException("Missing left parenthesis", offset, next);
+                if (!flags.StopOnUnmatchedParenthesis)
+                    throw new WoobyParserException("Missing left parenthesis", offset, next);
+                offset += next.InputLength;
+                break;
             }
             else if (next.Kind != TokenKind.None)
             {

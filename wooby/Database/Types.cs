@@ -348,7 +348,6 @@ public struct TempRow
 {
     public Dictionary<string, BaseValue> EvaluatedReferences { get; }
     public long RowId;
-    public int RowIndex;
 
     public TempRow()
     {
@@ -378,7 +377,7 @@ public record EvaluationFlags(QueryEvaluationPhase Phase, ExpressionOrigin Origi
 
 public class OutputColumnMeta
 {
-    public string OutputName { get; set; }
+    public string OutputName { get; init; } = string.Empty;
     public ValueKind Kind { get; set; }
 }
 
@@ -402,8 +401,8 @@ public struct OutputRow
 
 public class RowOrderingIntermediate
 {
-    public List<long> MatchingRows { get; set; }
-    public List<RowOrderingIntermediate> SubOrdering { get; set; }
+    public List<long>? MatchingRows { get; set; }
+    public List<RowOrderingIntermediate> SubOrdering { get; set; } = new();
 
     public void Collect(ExecutionContext exec, List<OutputRow> target)
     {
@@ -425,7 +424,7 @@ public abstract class Function
 {
     public abstract BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variation);
     public abstract IEnumerable<FunctionAccepts> Variations { get; }
-    public string Name { get; protected init; }
+    public string Name { get; protected init; } = string.Empty;
     public long Id { get; protected set; }
 
     protected Function(int id)
@@ -437,14 +436,12 @@ public abstract class Function
 public class TableCursor
 {
     private readonly ITableDataProvider _source;
-    private readonly int _numCols;
     private long _rowId = long.MinValue;
-    private IEnumerable<BaseValue> _currentValues;
+    private IEnumerable<BaseValue>? _currentValues;
 
-    public TableCursor(ITableDataProvider source, int numCols)
+    public TableCursor(ITableDataProvider source)
     {
         _source = source;
-        _numCols = numCols;
     }
 
     public bool Seek(long id)
@@ -485,12 +482,8 @@ public class TableCursor
 
     public BaseValue Read(int index)
     {
-        if (index >= _numCols)
-        {
-            throw new IndexOutOfRangeException("Index for column is out of range");
-        }
-
-        return _currentValues.ElementAt(index);
+        // TODO: Check if should throw error
+        return _currentValues?.ElementAt(index) ?? new NullValue();
     }
 
     public void Delete()
@@ -515,19 +508,20 @@ public class TableCursor
     }
 }
 
-public class TableData
-{
-    public TableMeta Meta { get; set; }
-    public ITableDataProvider DataProvider { get; set; }
-}
-
 public class ExecutionDataSource
 {
-    public TableMeta Meta { get; init; }
-    public TableCursor DataProvider { get; init; }
-    public string Alias { get; init; }
+    public TableMeta Meta { get; }
+    public TableCursor DataProvider { get; }
+    private string Alias { get; }
     public bool LastMatched { get; set; }
     public bool Matched { get; set; }
+
+    public ExecutionDataSource(TableMeta meta, TableCursor dataProvider, string alias)
+    {
+        Meta = meta;
+        DataProvider = dataProvider;
+        Alias = alias;
+    }
 
     public bool NameMatches(string name)
     {
@@ -539,15 +533,12 @@ public class ExecutionContext
 {
     public Output QueryOutput { get; } = new();
     public int RowsAffected { get; set; }
-
     public Context Context { get; }
-
-    //public ExecutionDataSource MainSource { get; set; }
     public ExecutionDataSource MainSource => Sources.First();
     public List<ExecutionDataSource> Sources { get; } = new();
     public Stack<BaseValue> Stack { get; } = new();
     public List<TempRow> TempRows { get; set; } = new();
-    public ExecutionContext Previous { get; init; }
+    public ExecutionContext? Previous { get; init; }
     public int RowNumber { get; private set; }
 
     public ExecutionContext(Context ctx)
@@ -567,7 +558,7 @@ public class ExecutionContext
 
     public TempRow CreateTempRow()
     {
-        return new TempRow { RowId = MainSource.DataProvider.CurrentRowId(), RowIndex = RowNumber };
+        return new TempRow { RowId = MainSource.DataProvider.CurrentRowId() };
     }
 
     public BaseValue PopStack()

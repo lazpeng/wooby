@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using wooby.Database.Persistence;
 using wooby.Database.Defaults;
@@ -11,7 +10,7 @@ namespace wooby.Database;
 
 public class Machine
 {
-    private Context Context { get; set; }
+    private Context? Context { get; set; }
 
     private static readonly List<Operator> BooleanOperators = new()
     {
@@ -31,9 +30,10 @@ public class Machine
 
     public Context Initialize()
     {
-        Initialize(new Context());
+        var ctx = new Context();
+        Initialize(ctx);
 
-        return Context;
+        return ctx;
     }
 
     public void Initialize(Context context)
@@ -45,6 +45,9 @@ public class Machine
 
     private void InitializeFunctions()
     {
+        if (Context == null)
+            throw new WoobyDatabaseException("Invalid state: Context is null");
+        
         var types = new List<Type>
         {
             typeof(CurrentDateFunction),
@@ -60,13 +63,17 @@ public class Machine
 
         for (var id = 0; id < types.Count; id++)
         {
-            var func = Activator.CreateInstance(types[id], id) as Function;
+            if (Activator.CreateInstance(types[id], id) is not Function func)
+                throw new WoobyDatabaseException("Could not instantiate function");
             Context.AddFunction(func);
         }
     }
 
     private void InitializeTables()
     {
+        if (Context == null)
+            throw new WoobyDatabaseException("Invalid state: Context is null");
+        
         Context.ResetNotReal();
 
         var dualMeta = new TableMeta
@@ -90,6 +97,9 @@ public class Machine
 
     private void RegisterTable(TableMeta meta, ITableDataProvider provider)
     {
+        if (Context == null)
+            throw new WoobyDatabaseException("Invalid state: Context is null");
+        
         meta.DataProvider = provider;
         provider.Initialize(Context, meta);
         Context.AddTable(meta);
@@ -105,7 +115,7 @@ public class Machine
 
     private class ColumnValueComparer : IComparer<BaseValue>, IEqualityComparer<BaseValue>
     {
-        public int Compare(BaseValue x, BaseValue y)
+        public int Compare(BaseValue? x, BaseValue? y)
         {
             if (x == null)
             {
@@ -115,12 +125,12 @@ public class Machine
             return y == null ? 1 : x.Compare(y);
         }
 
-        public bool Equals(BaseValue x, BaseValue y)
+        public bool Equals(BaseValue? x, BaseValue? y)
         {
             return x != null && y != null && x.Compare(y) == 0;
         }
 
-        public int GetHashCode([DisallowNull] BaseValue obj)
+        public int GetHashCode(BaseValue obj)
         {
             return base.GetHashCode();
         }
@@ -147,7 +157,7 @@ public class Machine
     }
 
     private static List<RowOrderingIntermediate> BuildFromRows(ExecutionContext exec, SelectStatement query,
-        ICollection<long> ids, int colIndex)
+        ICollection<long>? ids, int colIndex)
     {
         var ascending = query.OutputOrder[colIndex].Kind == OrderingKind.Ascending;
 
@@ -177,12 +187,12 @@ public class Machine
     }
 
     private static void OrderSub(ExecutionContext context, SelectStatement query,
-        List<RowOrderingIntermediate> scope, int colIndex)
+        IEnumerable<RowOrderingIntermediate> scope, int colIndex)
     {
         if (colIndex >= query.OutputOrder.Count)
             return;
 
-        foreach (var items in scope.Where(s => s.MatchingRows.Count > 1))
+        foreach (var items in scope.Where(s => s.MatchingRows is { Count: > 1 }))
         {
             items.SubOrdering = BuildFromRows(context, query, items.MatchingRows, colIndex);
             items.MatchingRows = null;
@@ -355,7 +365,10 @@ public class Machine
             meta.AddColumn(col.Name, col.Type);
         }
 
-        RegisterTable(meta, PersistenceBackendHelper.GetTableDataProvider(exec.Context));
+        var provider = PersistenceBackendHelper.GetTableDataProvider(exec.Context);
+        if (provider == null)
+            throw new WoobyDatabaseException("Failed to obtain data provider");
+        RegisterTable(meta, provider);
     }
 
     private static void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
@@ -476,7 +489,7 @@ public class Machine
         exec.RowsAffected = affected;
     }
 
-    private static ExecutionDataSource FindSourceByReference(ExecutionContext exec, ColumnReference reference)
+    private static ExecutionDataSource? FindSourceByReference(ExecutionContext exec, ColumnReference reference)
     {
         return exec.Sources.Find(src => src.NameMatches(reference.Table));
     }
@@ -488,9 +501,11 @@ public class Machine
                 .TempRows[sourceContext.RowNumber].EvaluatedReferences
                 .TryGetValue(reference.Join(), out var value)) return value;
         var source = FindSourceByReference(exec, reference);
-        if (source.Matched)
+        if (source is { Matched: true })
         {
             var col = source.Meta.FindColumn(reference);
+            if (col == null)
+                throw new WoobyDatabaseException("Internal error: Failed to locate reference to column");
             value = source.DataProvider.Read(col.Id);
         }
         else
@@ -773,7 +788,7 @@ public class Machine
     private static bool RecursiveSeekQuery(ExecutionContext exec, SelectStatement query, int idx,
         bool reset = false)
     {
-        Expression condition;
+        Expression? condition;
         bool rowIsOptional;
         if (idx == 0)
         {
@@ -946,13 +961,16 @@ public class Machine
 
     private static void SetupMainSource(ExecutionContext exec, TableSource source)
     {
-        TableMeta sourceData;
+        TableMeta? sourceData;
         if (source.Kind == TableSource.SourceKind.Reference)
         {
             sourceData = exec.Context.FindTable(source.Reference);
         }
         else
         {
+            if (source.SubSelect == null)
+                throw new WoobyDatabaseException("Internal error: Query source is SubSelect but value is null");
+            
             sourceData = source.BuildMetaFromSubSelect(exec.Context);
             // Execute sub select passed as the main source
             var subExec = new ExecutionContext(exec.Context)
@@ -967,17 +985,19 @@ public class Machine
             }
             else throw new WoobyDatabaseException("Internal error: Invalid provider for temporary query table");
         }
+        
+        if (sourceData?.DataProvider == null)
+            throw new WoobyDatabaseException("Failed to initialize data source");
 
-        exec.Sources.Add(new ExecutionDataSource
-        {
-            Meta = sourceData,
-            DataProvider = new TableCursor(sourceData.DataProvider, sourceData.Columns.Count),
-            Alias = source.Identifier
-        });
+        var cursor = new TableCursor(sourceData.DataProvider);
+        exec.Sources.Add(new ExecutionDataSource(sourceData, cursor, source.Identifier));
     }
 
     public ExecutionContext Execute(Statement statement)
     {
+        if (Context == null)
+            throw new WoobyDatabaseException("Invalid state: Context is null");
+        
         var exec = new ExecutionContext(Context);
 
         switch (statement)

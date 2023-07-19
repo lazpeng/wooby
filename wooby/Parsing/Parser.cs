@@ -146,7 +146,7 @@ public partial class Parser
             {
                 TokenKind.Symbol => ParseSymbol(input, offset),
                 TokenKind.LiteralNumber => ParseNumber(input, offset),
-                TokenKind.Operator => ParseOperator(input, offset),
+                TokenKind.Operator => ParseOperator(input, offset) ?? new Token {Kind = TokenKind.None},
                 _ => new Token {Kind = TokenKind.None}
             }
         };
@@ -324,7 +324,7 @@ public partial class Parser
         };
     }
 
-    private Token ParseOperator(string input, int offset)
+    private Token? ParseOperator(string input, int offset)
     {
         var original = offset;
         offset += SkipWhitespace(input, offset);
@@ -384,7 +384,7 @@ public partial class Parser
 
             if (column != null)
             {
-                nodeType = column.Type;
+                nodeType = column.Value.Type;
             }
             else if (node.ReferenceValue.Column == "*")
             {
@@ -424,9 +424,9 @@ public partial class Parser
         }
         else if (node.Kind == Expression.NodeKind.SubSelect)
         {
-            var subselect = node.SubSelect;
-            ResolveSelectReferences(subselect, context);
-            nodeType = subselect.OutputColumns[0].Type;
+            var subSelect = node.SubSelect;
+            ResolveSelectReferences(subSelect, context);
+            nodeType = subSelect.OutputColumns[0].Type;
         }
         else
         {
@@ -466,7 +466,7 @@ public partial class Parser
                     throw new Exception("Expected value in function argument list, found comma");
                 }
             }
-            else if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisRight)
+            else if (next is { Kind: TokenKind.Operator, OperatorValue: Operator.ParenthesisRight })
             {
                 offset += next.InputLength;
                 break;
@@ -544,7 +544,7 @@ public partial class Parser
         {
             var token = NextToken(input, offset);
 
-            if (offset >= input.Length || token == null || token.Kind == TokenKind.None)
+            if (offset >= input.Length || token.Kind is TokenKind.None)
             {
                 break;
             }
@@ -816,16 +816,15 @@ public partial class Parser
             insideFunction);
         expr.FullText = input[originalOffset..offset];
 
-        if (expr.Identifier == null)
+        if (expr.Identifier != null) return expr;
+        
+        if (expr.IsOnlyFunctionCall())
         {
-            if (expr.IsOnlyFunctionCall())
-            {
-                expr.Identifier = expr.FullText.Trim();
-            }
-            else if (expr.IsOnlyReference())
-            {
-                expr.Identifier = expr.Nodes[0].ReferenceValue.Join();
-            }
+            expr.Identifier = expr.FullText.Trim();
+        }
+        else if (expr.IsOnlyReference())
+        {
+            expr.Identifier = expr.Nodes[0].ReferenceValue.Join();
         }
 
         return expr;
@@ -851,17 +850,17 @@ public partial class Parser
                     // TODO(?) Check for name clashing
                 }
 
-                reference = statement.TryFindReferenceRecursive(context, reference, 0);
+                var r = statement.TryFindReferenceRecursive(context, reference, 0);
 
-                if (reference == null)
+                if (r == null)
                 {
                     throw new Exception("Unresolved reference to column");
                 }
             }
             else
             {
-                reference = statement.TryFindReferenceRecursive(context, reference, 0);
-                if (reference == null)
+                var r = statement.TryFindReferenceRecursive(context, reference, 0);
+                if (r == null)
                 {
                     throw new Exception("Unresolved reference to column");
                 }
@@ -903,7 +902,7 @@ public partial class Parser
             {
                 reference.Table = reference.Column;
 
-                if (token.Kind == TokenKind.Operator && token.OperatorValue == Operator.Asterisk)
+                if (token is { Kind: TokenKind.Operator, OperatorValue: Operator.Asterisk })
                 {
                     if (!flags.WildcardAllowed)
                     {
@@ -925,7 +924,6 @@ public partial class Parser
             }
 
             token = NextToken(input, offset);
-            if (token == null) continue;
             if (token.Kind == TokenKind.Dot)
             {
                 offset += token.InputLength;

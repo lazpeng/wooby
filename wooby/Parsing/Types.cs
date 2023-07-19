@@ -27,12 +27,12 @@ partial class Parser
     public class Token
     {
         public TokenKind Kind;
-        public string StringValue;
+        public string StringValue = string.Empty;
         public double NumberValue;
         public Keyword KeywordValue;
         public Operator OperatorValue;
         public int InputLength { get; init; }
-        public string FullText { get; set; }
+        public string FullText { get; set; } = string.Empty;
 
         public bool IsOperator()
         {
@@ -47,7 +47,7 @@ partial class Parser
 
     public struct ExpressionFlags
     {
-        // This is for any wildcard, including the syntax tablename.*
+        // This is for any wildcard, including the syntax table_name.*
         public bool WildcardAllowed = false;
 
         // This is for the single * character, disallowed when a column has already been specified
@@ -56,7 +56,7 @@ partial class Parser
         // Whether or not you can alias the expression to an identifier
         public bool IdentifierAllowed = false;
 
-        // If a single-value subselect is allowed
+        // If a single-value subSelect is allowed
         public bool SingleValueSubSelectAllowed = false;
 
         // If aggregate functions (e.g. SUM, COUNT) are valid in this context
@@ -170,7 +170,7 @@ public class Expression
         Null
     }
 
-    public record Node
+    public struct Node
     {
         public NodeKind Kind;
         public string StringValue;
@@ -223,8 +223,8 @@ public class Expression
         };
     }
 
-    public string FullText { get; set; }
-    public string Identifier { get; set; }
+    public string FullText { get; set; } = string.Empty;
+    public string? Identifier { get; set; }
     public List<Node> Nodes { get; init; } = new ();
     public ExpressionType Type { get; set; } = ExpressionType.Unknown;
     public bool IsBoolean { get; set; }
@@ -248,30 +248,25 @@ public class Expression
             return false;
         }
 
-        var nodes = Nodes.Where(p =>
-            (p.Kind == NodeKind.Operator && !(p.OperatorValue == Operator.ParenthesisLeft ||
-                                              p.OperatorValue == Operator.ParenthesisRight)) ||
-            p.Kind == NodeKind.Reference);
-        var first = nodes.FirstOrDefault();
-        return first != null && first.IsWildcard();
+        return Nodes.Any(n => n.IsWildcard());
     }
 
     public static bool IsTokenInvalidForExpressionStart(Token token)
     {
-        return new[] {TokenKind.Keyword, TokenKind.Dot, TokenKind.SemiColon, TokenKind.Comma}.Contains(token.Kind);
+        return token.Kind is TokenKind.Keyword or TokenKind.Dot or TokenKind.SemiColon or TokenKind.Comma;
     }
 
     public bool IsOnlyReference()
     {
-        return Nodes.Count == 1 && Nodes[0].Kind == NodeKind.Reference;
+        return Nodes is [{ Kind: NodeKind.Reference }];
     }
 
     public bool IsOnlyFunctionCall()
     {
-        return Nodes.Count == 1 && Nodes[0].Kind == NodeKind.Function;
+        return Nodes is [{ Kind: NodeKind.Function }];
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         return obj is Expression expression &&
                Nodes.SequenceEqual(expression.Nodes) &&
@@ -285,12 +280,19 @@ public class Expression
     }
 }
 
-public class FunctionCall
+public struct FunctionCall
 {
     public Function Meta { get; init; }
     public FunctionAccepts CalledVariant { get; set; }
     public List<Expression> Arguments { get; init; }
     private string _fullText = string.Empty;
+
+    public FunctionCall(Function meta, FunctionAccepts calledVariant, List<Expression> arguments)
+    {
+        Meta = meta;
+        CalledVariant = calledVariant;
+        Arguments = arguments;
+    }
 
     // Get a value kind of like "Function(a, 2+2, 123, COLUMN)" from this function call
     // for caching purposes
@@ -308,7 +310,7 @@ public class FunctionCall
             {
                 if (builder.Length > 0)
                 {
-                    builder.Append(",");
+                    builder.Append(',');
                 }
 
                 builder.Append(arg.FullText);
@@ -319,7 +321,7 @@ public class FunctionCall
         }
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         return obj is FunctionCall call &&
                Meta.Name == call.Meta.Name &&
@@ -330,25 +332,41 @@ public class FunctionCall
     {
         return HashCode.Combine(Meta.Name, Arguments);
     }
+
+    public static bool operator ==(FunctionCall left, FunctionCall right)
+    {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(FunctionCall left, FunctionCall right)
+    {
+        return !(left == right);
+    }
 }
 
-public record ColumnReference
+public struct ColumnReference
 {
-    public string Table { get; set; } = "";
-    public string Column { get; set; } = "";
-    public string Identifier { get; set; } = "";
+    public string Table { get; set; } = string.Empty;
+    public string Column { get; set; } = string.Empty;
+    public string Identifier { get; set; } = string.Empty;
     public int InputLength { get; set; }
     public int ParentLevel { get; init; }
     public Expression.ExpressionType Type { get; init; } = Expression.ExpressionType.Unknown;
+    private string _cachedJoin = string.Empty;
+
+    public ColumnReference()
+    {
+        
+    }
 
     public string Join()
     {
-        // Column is guaranteed to be non empty
-        if (string.IsNullOrEmpty(Table))
+        if (string.IsNullOrEmpty(_cachedJoin))
         {
-            return Column;
+            // Column is guaranteed to be non empty
+            _cachedJoin = string.IsNullOrEmpty(Table) ? Column : $"{Table}.{Column}";
         }
-        return $"{Table}.{Column}";
+        return _cachedJoin;
     }
 }
 
@@ -380,8 +398,8 @@ public class TableSource
         
     public SourceKind Kind { get; init; }
     public ColumnReference Reference { get; init; }
-    public SelectStatement SubSelect { get; init; }
-    private TableMeta CachedMeta { get; set; }
+    public SelectStatement? SubSelect { get; init; }
+    private TableMeta? CachedMeta { get; set; }
 
     public string CanonName => string.IsNullOrEmpty(Identifier) ? Table : Identifier;
 
@@ -392,7 +410,7 @@ public class TableSource
             return Kind switch
             {
                 SourceKind.Reference => Reference.Identifier,
-                SourceKind.SubSelect => SubSelect.Identifier,
+                SourceKind.SubSelect => SubSelect?.Identifier ?? "",
                 _ => throw new WoobyException("Unreachable code")
             };
         }
@@ -405,7 +423,7 @@ public class TableSource
             return Kind switch
             {
                 SourceKind.Reference => Reference.InputLength,
-                SourceKind.SubSelect => SubSelect.InputLength,
+                SourceKind.SubSelect => SubSelect?.InputLength ?? 0,
                 _ => throw new WoobyException("Unreachable code")
             };
         }
@@ -424,16 +442,15 @@ public class TableSource
         }
     }
 
-    public ColumnMeta FindReference(ColumnReference reference, Context context)
+    public ColumnMeta? FindReference(ColumnReference reference, Context context)
     {
-        if (Kind == SourceKind.Reference)
+        if (Kind != SourceKind.Reference) return GetMeta(context).FindColumn(reference);
+        
+        if (string.IsNullOrEmpty(reference.Table))
         {
-            if (string.IsNullOrEmpty(reference.Table))
-            {
-                reference.Table = Table;
-            }
+            reference.Table = Table;
         }
-            
+
         return GetMeta(context).FindColumn(reference);
     }
 
@@ -441,7 +458,7 @@ public class TableSource
     {
         return Kind switch
         {
-            SourceKind.Reference => context.FindTable(Reference),
+            SourceKind.Reference => context.FindTable(Reference) ?? throw new WoobyException("Internal error: Could not find the specified table"),
             SourceKind.SubSelect => BuildMetaFromSubSelect(context),
             _ => throw new WoobyException("Unreachable code")
         };
@@ -456,7 +473,12 @@ public class TableSource
         {
             throw new WoobyException("Internal error: BuildMetaFromSubSelect called when source is not sub select");
         }
-            
+
+        if (SubSelect == null)
+        {
+            throw new WoobyException("Internal error: Table source is sub select but no value is present");
+        }
+        
         CachedMeta = new TableMeta
         {
             DataProvider = new InMemoryDataProvider(),
@@ -468,7 +490,7 @@ public class TableSource
 
         foreach (var output in SubSelect.OutputColumns)
         {
-            CachedMeta.AddColumn(output.Identifier, Expression.ExpressionTypeToColumnType(output.Type));
+            CachedMeta.AddColumn(output.Identifier ?? output.FullText, Expression.ExpressionTypeToColumnType(output.Type));
         }
         CachedMeta.DataProvider.Initialize(context, CachedMeta);
             
@@ -485,14 +507,14 @@ public abstract class Statement
 {
     public StatementKind Kind { get; protected init; }
     protected StatementClass Class { get; init; }
-    public string OriginalText { get; set; }
-    public TableSource MainSource { get; set; }
-    public Expression FilterConditions { get; set; }
-    public Statement Parent { get; set; }
+    public string OriginalText { get; set; } = string.Empty;
+    public TableSource MainSource { get; set; } = new();
+    public Expression? FilterConditions { get; set; }
+    public Statement? Parent { get; set; }
     public StatementFlags UsedFlags { get; set; } = new();
     public int InputLength { get; set; }
 
-    public ColumnReference TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
+    public ColumnReference? TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
     {
         if (reference.Column == "*")
             return reference;
@@ -514,19 +536,16 @@ public abstract class Statement
         else if (this is SelectStatement query)
         {
             var join = query.Joins.FirstOrDefault(j => j.Source.NameMatches(reference.Table));
-            if (join != null)
+            var col = join?.Source.FindReference(reference, context);
+            if (col != null)
             {
-                var col = join.Source.FindReference(reference, context);
-                if (col != null)
+                return new ColumnReference
                 {
-                    return new ColumnReference
-                    {
-                        Table = col.Table,
-                        ParentLevel = level,
-                        Column = col.Name,
-                        Type = Expression.ColumnTypeToExpressionType(col.Type)
-                    };
-                }
+                    Table = col.Table,
+                    ParentLevel = level,
+                    Column = col.Name,
+                    Type = Expression.ColumnTypeToExpressionType(col.Type)
+                };
             }
         }
 
@@ -542,10 +561,10 @@ public enum OrderingKind
 
 public class Ordering
 {
-    public Expression OrderExpression { get; init; }
+    public Expression OrderExpression { get; init; } = new();
     public OrderingKind Kind { get; set; } = OrderingKind.Ascending;
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         return obj is Ordering ordering &&
                OrderExpression.Equals(ordering.OrderExpression) &&
@@ -568,9 +587,9 @@ public enum JoinKind
 
 public class Joining
 {
-    public TableSource Source { get; init; }
+    public TableSource Source { get; init; } = new();
     public JoinKind Kind { get; init; } = JoinKind.Inner;
-    public Expression Condition { get; init; }
+    public Expression Condition { get; init; } = new();
 }
 
 public class SelectStatement : Statement
@@ -588,7 +607,7 @@ public class SelectStatement : Statement
     public string Identifier { get; set; } = string.Empty;
     public bool Distinct { get; set; }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         return obj is SelectStatement statement &&
                Kind == statement.Kind &&
@@ -596,7 +615,7 @@ public class SelectStatement : Statement
                OutputColumns.SequenceEqual(statement.OutputColumns) &&
                (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
                (FilterConditions == statement.FilterConditions ||
-                FilterConditions.Equals(statement.FilterConditions)) &&
+                (FilterConditions?.Equals(statement.FilterConditions) ?? false)) &&
                OutputOrder.SequenceEqual(statement.OutputOrder);
     }
 
@@ -608,7 +627,7 @@ public class SelectStatement : Statement
 
 public class ColumnNameTypeDef
 {
-    public string Name { get; init; }
+    public string Name { get; init; } = string.Empty;
     public ColumnType Type { get; init; }
 }
 
@@ -620,7 +639,7 @@ public class CreateStatement : Statement
         Class = StatementClass.Create;
     }
 
-    public string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
     public List<ColumnNameTypeDef> Columns { get; } = new();
 }
 

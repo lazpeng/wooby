@@ -9,12 +9,16 @@
     <RepositoryUrl>https://github.com/lazpeng/wooby</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Authors>lazpeng &lt;lazpeng@gmail.com&gt;</Authors>
+    <LangVersion>default</LangVersion>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\LICENSE">
       <Pack>True</Pack>
-      <PackagePath></PackagePath>
+    </None>
+    <None Include="..\README.md">
+      <Pack>False</Pack>
     </None>
   </ItemGroup>
 

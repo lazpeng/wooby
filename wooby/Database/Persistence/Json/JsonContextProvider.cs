@@ -22,10 +22,10 @@ public class JsonContextProvider : IContextProvider
 
         // Restore old data and remove string serialization
         context.CustomSourceData = data;
-        context.CustomSourceDataString = null;
+        context.CustomSourceDataString = "";
     }
 
-    public Context LoadContext(string fullPath)
+    public Context? LoadContext(string fullPath)
     {
         var file = File.ReadAllText(fullPath);
         if (string.IsNullOrEmpty(file))
@@ -34,10 +34,12 @@ public class JsonContextProvider : IContextProvider
         }
 
         var ctx = JsonSerializer.Deserialize<Context>(file);
+        if (ctx == null)
+            return null;
         ctx.CustomSourceData = JsonSerializer.Deserialize<JsonCustomData>(ctx.CustomSourceDataString);
-        ctx.CustomSourceDataString = null;
+        ctx.CustomSourceDataString = "";
 
-        if (((JsonCustomData)ctx.CustomSourceData).Version != new JsonCustomData().Version)
+        if (ctx.CustomSourceData != null && ((JsonCustomData)ctx.CustomSourceData).Version != new JsonCustomData().Version)
         {
             // TODO: Upgrade? Check for compatibility?
             throw new Exception("Database created using another backend version");

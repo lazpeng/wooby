@@ -2,12 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using wooby.Database.Persistence;
+using wooby.Error;
 
 namespace wooby.Database.Defaults;
 
 public class DualDataProvider : ITableDataProvider
 {
-    public long Delete(long rowid)
+    public long Delete(long rowId)
     {
         throw new Exception("Not supported");
     }
@@ -17,17 +18,17 @@ public class DualDataProvider : ITableDataProvider
         throw new Exception("Not supported");
     }
 
-    public void Update(long rowid, Dictionary<int, BaseValue> columns)
+    public void Update(long rowId, Dictionary<int, BaseValue> columns)
     {
         throw new Exception("Not supported");
     }
 
-    public IEnumerable<BaseValue> Seek(long rowId)
+    public IEnumerable<BaseValue>? Seek(long rowId)
     {
         return rowId == 0 ? new List<BaseValue>() : null;
     }
 
-    public IEnumerable<BaseValue> SeekNext(ref long rowId)
+    public IEnumerable<BaseValue>? SeekNext(ref long rowId)
     {
         if (rowId < 0)
         {
@@ -45,7 +46,7 @@ public class DualDataProvider : ITableDataProvider
 public class InMemoryDataProvider : ITableDataProvider
 {
     private long _lastRowId = -1;
-    private TableMeta _meta;
+    private TableMeta? _meta;
 
     private struct Row
     {
@@ -53,7 +54,7 @@ public class InMemoryDataProvider : ITableDataProvider
         public List<BaseValue> Columns;
     }
 
-    private List<Row> _rows;
+    private List<Row> _rows = new();
 
     public void SetupRows(IEnumerable<List<BaseValue>> values)
     {
@@ -78,12 +79,12 @@ public class InMemoryDataProvider : ITableDataProvider
         return null;
     }
 
-    IEnumerable<BaseValue> ITableDataProvider.Seek(long rowId)
+    IEnumerable<BaseValue>? ITableDataProvider.Seek(long rowId)
     {
         return Find(rowId, out _)?.Columns;
     }
 
-    public IEnumerable<BaseValue> SeekNext(ref long rowId)
+    public IEnumerable<BaseValue>? SeekNext(ref long rowId)
     {
         Find(rowId, out var index);
 
@@ -103,9 +104,9 @@ public class InMemoryDataProvider : ITableDataProvider
         return null;
     }
 
-    public long Delete(long rowid)
+    public long Delete(long rowId)
     {
-        Find(rowid, out var index);
+        Find(rowId, out var index);
         _rows.RemoveAt(index);
         if (index == 0 || index >= _rows.Count)
         {
@@ -116,6 +117,11 @@ public class InMemoryDataProvider : ITableDataProvider
 
     public long Insert(Dictionary<int, BaseValue> values)
     {
+        if (_meta == null)
+        {
+            throw new WoobyDatabaseException("Data provider is not initialized");
+        }
+        
         var row = new Row {RowId = ++_lastRowId, Columns = new List<BaseValue>(_meta.Columns.Count)};
 
         for (var idx = 0; idx < _meta.Columns.Count; ++idx)
@@ -128,9 +134,9 @@ public class InMemoryDataProvider : ITableDataProvider
         return row.RowId;
     }
 
-    public void Update(long rowid, Dictionary<int, BaseValue> columns)
+    public void Update(long rowId, Dictionary<int, BaseValue> columns)
     {
-        var row = Find(rowid, out var _);
+        var row = Find(rowId, out var _);
 
         if (row == null) return;
         foreach (var col in columns)
@@ -152,7 +158,7 @@ public class LoveLiveDataProvider : InMemoryDataProvider
     {
         public long Id;
         public long? ParentId;
-        public string Nome;
+        public string Nome = string.Empty;
         public int Ano;
         public int NumIntegrantes;
     }

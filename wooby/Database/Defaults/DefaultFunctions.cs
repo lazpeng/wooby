@@ -7,9 +7,9 @@ namespace wooby.Database.Defaults;
 
 public class FunctionAccepts
 {
-    public string Identifier { get; init; }
+    public string Identifier { get; init; } = string.Empty;
     public ColumnType ResultType { get; init; }
-    public IReadOnlyList<ColumnType> Parameters { get; init; }
+    public IReadOnlyList<ColumnType> Parameters { get; init; } = Array.Empty<ColumnType>();
     public bool IsAggregate { get; init; }
 }
 

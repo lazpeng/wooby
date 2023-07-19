@@ -1,19 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using wooby.Error;
 
 namespace wooby.Database.Persistence.Json;
 
 public class JsonTableDataProvider : ITableDataProvider
 {
-    private JsonCustomData _privateData;
-    private Dictionary<long, JsonTableRow> _tableData;
-    private TableMeta _meta;
+    private JsonCustomData? _privateData;
+    private Dictionary<long, JsonTableRow>? _tableData;
+    private TableMeta? _meta;
 
-    public long Delete(long rowid)
+    public long Delete(long rowId)
     {
-        var index = _tableData.Keys.ToList().IndexOf(rowid);
-        _tableData.Remove(rowid);
+        if (_tableData == null)
+        {
+            throw new WoobyException("Provider is not initialized");
+        }
+        
+        var index = _tableData.Keys.ToList().IndexOf(rowId);
+        _tableData.Remove(rowId);
 
         if (_tableData.Count == 0 || index >= _tableData.Count)
         {
@@ -44,6 +50,11 @@ public class JsonTableDataProvider : ITableDataProvider
 
     public long Insert(Dictionary<int, BaseValue> values)
     {
+        if (_tableData == null || _privateData == null || _meta == null)
+        {
+            throw new WoobyException("Provider is not initialized");
+        }
+
         var row = new JsonTableRow { RowId = _privateData.NextRowId++, Columns = new List<BaseValue>(_meta.Columns.Count) };
 
         for (var idx = 0; idx < _meta.Columns.Count; ++idx)
@@ -56,13 +67,23 @@ public class JsonTableDataProvider : ITableDataProvider
         return row.RowId;
     }
 
-    public IEnumerable<BaseValue> Seek(long rowId)
+    public IEnumerable<BaseValue>? Seek(long rowId)
     {
+        if (_tableData == null)
+        {
+            throw new WoobyException("Provider is not initialized");
+        }
+
         return _tableData.TryGetValue(rowId, out var row) ? row.Columns : null;
     }
 
-    public IEnumerable<BaseValue> SeekNext(ref long rowId)
+    public IEnumerable<BaseValue>? SeekNext(ref long rowId)
     {
+        if (_tableData == null)
+        {
+            throw new WoobyException("Provider is not initialized");
+        }
+
         var found = rowId == long.MinValue;
 
         foreach (var id in _tableData.Keys)
@@ -81,9 +102,14 @@ public class JsonTableDataProvider : ITableDataProvider
         return null;
     }
 
-    public void Update(long rowid, Dictionary<int, BaseValue> columns)
+    public void Update(long rowId, Dictionary<int, BaseValue> columns)
     {
-        if (!_tableData.TryGetValue(rowid, out var row)) return;
+        if (_tableData == null)
+        {
+            throw new WoobyException("Provider is not initialized");
+        }
+
+        if (!_tableData.TryGetValue(rowId, out var row)) return;
         foreach (var col in columns)
         {
             row.Columns[col.Key] = col.Value;

@@ -8,7 +8,7 @@ namespace wooby.Database.Persistence;
 
 public interface IContextProvider
 {
-    Context LoadContext(string fullPath);
+    Context? LoadContext(string fullPath);
     Context NewContext(string name, string workingDirectory);
     void CommitChanges(Context context);
 }

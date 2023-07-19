@@ -98,13 +98,12 @@ public partial class Parser
     {
         var originalOffset = offset;
         var result = new List<Tuple<ColumnReference, Expression>>();
-        Token next;
         var flags = new ReferenceFlags
             {AliasAllowed = false, ResolveReferences = true, TableOnly = false, WildcardAllowed = false};
 
         while (true)
         {
-            next = NextToken(input, offset);
+            var next = NextToken(input, offset);
             if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
             {
                 break;
@@ -145,7 +144,7 @@ public partial class Parser
         AssertTokenIsKeyword(next, Keyword.Into, "Expected INTO after INSERT");
         offset += next.InputLength;
 
-        // Which table we are INSERTing into
+        // Which table we are inserting into
         statement.MainSource = ParseTableSource(input, offset, context, statement);
         if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
         {
@@ -235,7 +234,7 @@ public partial class Parser
         AssertTokenIsKeyword(next, Keyword.From, "Expected FROM after DELETE");
         offset += next.InputLength;
 
-        // Which table we are DELETing from
+        // Which table we are deleting from
         statement.MainSource = ParseTableSource(input, offset, context, statement);
         if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
         {

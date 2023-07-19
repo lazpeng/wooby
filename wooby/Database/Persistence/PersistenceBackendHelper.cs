@@ -9,23 +9,23 @@ namespace wooby.Database.Persistence;
 
 public static class PersistenceBackendHelper
 {
-    public static ITableDataProvider GetTableDataProvider(Context context)
+    public static ITableDataProvider? GetTableDataProvider(Context context)
     {
         return context.DatabaseSource switch
         {
             ContextSourceType.Json => new Json.JsonTableDataProvider(),
-            _ => (ITableDataProvider)null
+            _ => null
         };
     }
 
-    public static IContextProvider GetContextProvider(string sourceFile)
+    public static IContextProvider? GetContextProvider(string sourceFile)
     {
         // Try to guess based on the file extension
         var info = new FileInfo(sourceFile);
         return info.Exists ? GetContextProviderForType(info.Extension[1..].ToLower()) : null;
     }
 
-    public static IContextProvider GetContextProviderForType(string type)
+    public static IContextProvider? GetContextProviderForType(string type)
     {
         return type switch
         {
