@@ -23,7 +23,7 @@ _unlikely = low priority, maybe never_
     - [ ] COUNT
         - [x] Basic COUNT support, without any arguments, counts all rows in the resulting query
         - [ ] COUNT(expr) Number of rows where _expr_ is not NULL (can be achieved with WHERE _expr_ IS NOT NULL)
-        - [ ] COUNT(DINSTINCT expr) same as above but count only distinct values of _expr_ (can be achieved via existing group by clause)
+        - [ ] COUNT(DISTINCT expr) same as above but count only distinct values of _expr_ (can be achieved via existing group by clause)
         - [ ] COUNT(*) syntactic sugar, does the same as _Basic COUNT_ above
         - [ ] (unlikely) OVER () / PARTITION
     - [ ] UNION clause
@@ -66,10 +66,12 @@ _unlikely = low priority, maybe never_
     - [ ] (unlikely) CROSS and SELF JOIN
 - [ ] HAVING clause
 - [ ] Meta tables with info about the schema and database
+- [ ] Explain execution plan
 - [ ] Import CSV files into tables from the command line
 - [ ] Command line that doesn't suck
 - [ ] (big one) Data persistence and querying of data from disk
 - [ ] System.Data interfaces implementation
+- [ ] GUI query runner and schema browser
 - [x] Unhelpful and vague error messages
 
 And certainly more things I don't remember at the moment, or haven't thought of yet.
