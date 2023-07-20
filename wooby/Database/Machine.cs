@@ -171,14 +171,10 @@ public class Machine
             input = exec.TempRows.AsEnumerable();
         }
 
-        var reference = query.OutputOrder[colIndex].OrderExpression;
-        if (!reference.IsOnlyReference())
-        {
-            throw new NotImplementedException();
-        }
-
-        var name = reference.Nodes[0].ReferenceValue.Join();
-        var groups = input.GroupBy(row => row.EvaluatedReferences[name], new ColumnValueComparer())
+        var expr = query.OutputOrder[colIndex].OrderExpression;
+        var flags = new EvaluationFlags(QueryEvaluationPhase.Final, ExpressionOrigin.Ordering);
+        var groups = input
+            .GroupBy(row => EvaluateExpression(exec, expr, row, flags), new ColumnValueComparer())
             .OrderBy(r => r.Key, new ColumnValueComparer());
         var cursor = ascending ? groups : groups.Reverse();
 
@@ -238,10 +234,7 @@ public class Machine
         {
             return groups.Values.ToList();
         }
-        else
-        {
-            return groups.Values.SelectMany(rows => GroupRowsRecursive(exec, rows, level + 1, query)).ToList();
-        }
+        return groups.Values.SelectMany(rows => GroupRowsRecursive(exec, rows, level + 1, query)).ToList();
     }
 
     private static List<TempRow> FlattenTempRows(ExecutionContext exec, List<List<TempRow>> groups,
@@ -929,6 +922,7 @@ public class Machine
                 EvaluateCurrentRowReferences(exec, ordering.OrderExpression, tempRow, flags);
             }
 
+            flags.Origin = ExpressionOrigin.Grouping;
             foreach (var grouping in query.Grouping)
             {
                 EvaluateCurrentRowReferences(exec, grouping, tempRow, flags);
@@ -943,7 +937,6 @@ public class Machine
         GroupRows(exec, query);
         DistinctRows(exec, query);
         OrderOutputRows(exec, query);
-        //PushAllRowsToOutput(exec, query);
         // Final check so we don't return an empty row when no rows were found
         CheckOutputRows(exec);
     }

@@ -56,8 +56,7 @@ _unlikely = low priority, maybe never_
 - [x] WHERE clause
     - [ ] IS / IS NOT for NULL comparison (currently works with = and !=/<>)
 - [x] GROUP BY expression
-- [x] ORDER BY list of columns
-    - [ ] ORDER BY list of expressions
+- [x] ORDER BY expression
 - [ ] JOIN
     - [x] LEFT JOIN
     - [x] INNER JOIN

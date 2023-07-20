@@ -344,14 +344,14 @@ public struct FunctionCall
     }
 }
 
-public struct ColumnReference
+public record ColumnReference
 {
     public string Table { get; set; } = string.Empty;
     public string Column { get; set; } = string.Empty;
     public string Identifier { get; set; } = string.Empty;
     public int InputLength { get; set; }
     public int ParentLevel { get; init; }
-    public Expression.ExpressionType Type { get; init; } = Expression.ExpressionType.Unknown;
+    public Expression.ExpressionType Type { get; set; } = Expression.ExpressionType.Unknown;
     private string _cachedJoin = string.Empty;
 
     public ColumnReference()

@@ -379,21 +379,17 @@ public partial class Parser
         if (node.Kind == Expression.NodeKind.Reference)
         {
             SanitizeReference(node.ReferenceValue, context, statement);
-
-            var column = statement.TryFindReferenceRecursive(context, node.ReferenceValue, 0);
-
-            if (column != null)
-            {
-                nodeType = column.Value.Type;
-            }
-            else if (node.ReferenceValue.Column == "*")
+            
+            if (node.ReferenceValue.Column == "*")
             {
                 nodeType = Expression.ExpressionType.Unknown;
             }
-            else
+            else if (node.ReferenceValue.Type == Expression.ExpressionType.Unknown)
             {
                 throw new Exception("Function from symbol reference");
             }
+
+            nodeType = node.ReferenceValue.Type;
         }
         else if (node.Kind == Expression.NodeKind.Function)
         {
@@ -841,34 +837,36 @@ public partial class Parser
         }
         else
         {
+            ColumnReference? r;
             if (string.IsNullOrEmpty(reference.Table))
             {
                 var function = context.FindFunction(reference.Column);
                 if (function != null) return;
-                if (statement.Parent != null)
-                {
-                    // TODO(?) Check for name clashing
-                }
 
-                var r = statement.TryFindReferenceRecursive(context, reference, 0);
+                r = statement.TryFindReferenceRecursive(context, reference, 0);
 
                 if (r == null)
                 {
                     throw new Exception("Unresolved reference to column");
                 }
+                reference.Table = r.Table;
             }
             else
             {
-                var r = statement.TryFindReferenceRecursive(context, reference, 0);
+                r = statement.TryFindReferenceRecursive(context, reference, 0);
                 if (r == null)
                 {
                     throw new Exception("Unresolved reference to column");
                 }
             }
+            
+            // TODO: Check for name ambiguity
+
+            reference.Type = r.Type;
         }
     }
 
-    public ColumnReference ParseReference(string input, int offset, Context context, Statement statement,
+    private ColumnReference ParseReference(string input, int offset, Context context, Statement statement,
         ReferenceFlags flags)
     {
         var reference = new ColumnReference();

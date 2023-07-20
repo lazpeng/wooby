@@ -333,7 +333,7 @@ public partial class Parser
                             offset += next.InputLength;
                             break;
                         }
-                        else if (next.Kind == TokenKind.Keyword || next.Kind == TokenKind.None)
+                        else if (next.Kind is TokenKind.Keyword or TokenKind.None)
                         {
                             if (firstOrder)
                             {
@@ -353,8 +353,7 @@ public partial class Parser
                         offset += ordering.OrderExpression.FullText.Length;
 
                         next = NextToken(input, offset);
-                        if (next.Kind == TokenKind.Keyword &&
-                            (next.KeywordValue == Keyword.Asc || next.KeywordValue == Keyword.Desc))
+                        if (next is { Kind: TokenKind.Keyword, KeywordValue: Keyword.Asc or Keyword.Desc })
                         {
                             ordering.Kind = next.KeywordValue == Keyword.Asc
                                 ? OrderingKind.Ascending
@@ -375,7 +374,7 @@ public partial class Parser
                     {
                         next = NextToken(input, offset);
 
-                        if (next.Kind == TokenKind.Comma)
+                        if (next.Kind is TokenKind.Comma)
                         {
                             if (statement.Grouping.Count == 0)
                             {
@@ -383,7 +382,7 @@ public partial class Parser
                             }
                             offset += next.InputLength;
                         }
-                        else if (next.Kind == TokenKind.None || next.Kind == TokenKind.Keyword)
+                        else if (next.Kind is TokenKind.None or TokenKind.Keyword)
                         {
                             break;
                         }
