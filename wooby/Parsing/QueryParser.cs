@@ -23,9 +23,9 @@ public partial class Parser
             ResolveUnresolvedReferences(expr, context, statement);
         }
 
-        if (statement.FilterConditions != null)
+        foreach (var source in statement.Sources)
         {
-            ResolveUnresolvedReferences(statement.FilterConditions, context, statement);
+            ResolveUnresolvedReferences(source.Condition, context, statement);
         }
 
         if (statement.Parent == null) return;
@@ -35,19 +35,16 @@ public partial class Parser
         }
     }
 
-    private static void AssertJoinsAreCorrect(SelectStatement statement)
+    private static void AssertJoinsAreCorrect(Statement statement)
     {
         // Check alias clashes
         // check all tables with the same name have an alias
         // check all references point to a valid table and alias
 
-        var sources = new List<TableSource> { statement.MainSource };
-        sources.AddRange(statement.Joins.Select(s => s.Source));
-
-        var repeatedTables = sources.Select(s => s.Table).GroupBy(g => g).Where(g => g.Count() > 1).Select(g => g.Key);
+        var repeatedTables = statement.Sources.Select(s => s.Source.Table).GroupBy(g => g).Where(g => g.Count() > 1).Select(g => g.Key);
         foreach (var table in repeatedTables)
         {
-            var repeated = sources.FindAll(t => t.Table == table);
+            var repeated = statement.Sources.Select(s => s.Source).Where(t => t.Table == table);
             // Any of the table references does not have an alias or has an duplicated one
             if (repeated.Select(r => r.Identifier).GroupBy(g => g)
                 .Any(g => g.Count() != 1 || string.IsNullOrEmpty(g.Key)))
@@ -58,10 +55,16 @@ public partial class Parser
         }
 
         // Check if any aliases are repeated
-        if (sources.Select(s => s.Identifier).Where(s => !string.IsNullOrEmpty(s)).GroupBy(s => s)
+        if (statement.Sources.Select(s => s.Source.Identifier).Where(s => !string.IsNullOrEmpty(s)).GroupBy(s => s)
             .Any(g => g.Count() > 1))
         {
             throw new WoobyParserException("Same alias used for more than one table in statement", 0);
+        }
+        
+        // Check that all joins have a condition (except for the main [0] source)
+        if (statement.Sources.Skip(1).Any(s => !s.Condition.Nodes.Any()))
+        {
+            throw new WoobyParserException("A JOIN clause must have a valid ON condition", 0);
         }
     }
 
@@ -83,7 +86,7 @@ public partial class Parser
                 // Make sure that the aggregate function does NOT use a column or expression in the group by
                 if (output.Nodes
                     .Where(node => node is { Kind: Expression.NodeKind.Function, FunctionCall.CalledVariant.IsAggregate: true })
-                    .Any(node => node.FunctionCall.Arguments.Any(p => query.Grouping.Contains(p))))
+                    .Any(node => node.FunctionCall != null && node.FunctionCall.Arguments.Any(p => query.Grouping.Contains(p))))
                 {
                     throw new WoobyParserException(
                         "GROUP BY expression used as argument for aggregate function", 0);
@@ -120,19 +123,15 @@ public partial class Parser
         {
             if (expr.IsWildcard())
             {
-                if (expr.IsOnlyReference() && !string.IsNullOrEmpty(expr.Nodes[0].ReferenceValue.Table))
+                if (expr.IsOnlyReference() && !string.IsNullOrEmpty(expr.Nodes[0].ReferenceValue?.Table))
                 {
-                    TableSource? source;
-                    var name = expr.Nodes[0].ReferenceValue.Table;
-                    if (query.MainSource.NameMatches(name))
-                    {
-                        source = query.MainSource;
-                    }
-                    else
-                    {
-                        source = query.Joins.Select(j => j.Source)
-                            .FirstOrDefault(s => s.NameMatches(name));
-                    }
+                    var reference = expr.Nodes[0].ReferenceValue; 
+                    if (reference == null)
+                        throw new WoobyParserException("Internal error: reference is null", 0);
+                    var name = reference.Table;
+                    
+                    var source = query.Sources.Select(j => j.Source)
+                        .FirstOrDefault(s => s.NameMatches(name));
 
                     if (source == null)
                     {
@@ -143,8 +142,7 @@ public partial class Parser
                 }
                 else
                 {
-                    ExpandSourceWildcards(context, query.MainSource, newOutput);
-                    foreach (var joins in query.Joins.Select(j => j.Source))
+                    foreach (var joins in query.Sources.Select(j => j.Source))
                     {
                         ExpandSourceWildcards(context, joins, newOutput);
                     }
@@ -159,7 +157,7 @@ public partial class Parser
         query.OutputColumns = newOutput;
     }
 
-    public SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement? parent)
+    private SelectStatement ParseSelect(string input, int offset, Context context, StatementFlags flags, Statement? parent)
     {
         var originalOffset = offset;
         var statement = new SelectStatement();
@@ -243,9 +241,10 @@ public partial class Parser
             // Disallow general wildcards after first column
             exprFlags.GeneralWildcardAllowed = false;
         } while (true);
-
-        statement.MainSource = ParseTableSource(input, offset, context, statement);
-        offset += statement.MainSource.InputLength;
+        
+        var mainSource = ParseTableSource(input, offset, context, statement);
+        statement.Sources.Add(new Joining {Kind = JoinKind.Inner, Source = mainSource});
+        offset += mainSource.InputLength;
 
         do
         {
@@ -279,7 +278,7 @@ public partial class Parser
                         false);
                     offset += condition.FullText.Length;
 
-                    statement.Joins.Add(new Joining { Condition = condition, Kind = joinKind, Source = source });
+                    statement.Sources.Add(new Joining { Condition = condition, Kind = joinKind, Source = source });
                     ResolveUnresolvedReferences(condition, context, statement);
                 }
                 else if (explicitKind)

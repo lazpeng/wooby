@@ -126,7 +126,7 @@ public partial class Parser
         return op != defaultValue;
     }
 
-    public Token NextToken(string input, int offset = 0)
+    private Token NextToken(string input, int offset = 0)
     {
         if (offset >= input.Length)
         {
@@ -378,11 +378,13 @@ public partial class Parser
         Expression.ExpressionType nodeType;
         if (node.Kind == Expression.NodeKind.Reference)
         {
+            if (node.ReferenceValue == null)
+                throw new WoobyException("Internal error: Reference is null");
             SanitizeReference(node.ReferenceValue, context, statement);
             
             if (node.ReferenceValue.Column == "*")
             {
-                nodeType = Expression.ExpressionType.Unknown;
+                //nodeType = Expression.ExpressionType.Unknown;
             }
             else if (node.ReferenceValue.Type == Expression.ExpressionType.Unknown)
             {
@@ -393,6 +395,8 @@ public partial class Parser
         }
         else if (node.Kind == Expression.NodeKind.Function)
         {
+            if (node.FunctionCall == null)
+                throw new WoobyParserException("Internal error: FunctionCall is null", 0);
             nodeType = Expression.ColumnTypeToExpressionType(node.FunctionCall.CalledVariant.ResultType);
 
             foreach (var arg in node.FunctionCall.Arguments)
@@ -420,9 +424,10 @@ public partial class Parser
         }
         else if (node.Kind == Expression.NodeKind.SubSelect)
         {
-            var subSelect = node.SubSelect;
-            ResolveSelectReferences(subSelect, context);
-            nodeType = subSelect.OutputColumns[0].Type;
+            if (node.SubSelect == null)
+                throw new WoobyException("Internal error: SubSelect is null");
+            ResolveSelectReferences(node.SubSelect, context);
+            nodeType = node.SubSelect.OutputColumns[0].Type;
         }
         else
         {
@@ -442,7 +447,7 @@ public partial class Parser
     private List<Expression> ParseFunctionArguments(string input, ref int ogOffset, Context context,
         Statement statement, bool resolveReferences)
     {
-        var exprs = new List<Expression>();
+        var exprList = new List<Expression>();
         var flags = new ExpressionFlags
             {GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false};
 
@@ -453,7 +458,7 @@ public partial class Parser
             var next = NextToken(input, offset);
             if (next.Kind == TokenKind.Comma)
             {
-                if (exprs.Count > 0)
+                if (exprList.Count > 0)
                 {
                     offset += next.InputLength;
                 }
@@ -467,20 +472,20 @@ public partial class Parser
                 offset += next.InputLength;
                 break;
             }
-            else if (exprs.Count > 0)
+            else if (exprList.Count > 0)
             {
                 throw new Exception("Unexpected token inside function argument list");
             }
 
             var expr = ParseExpression(input, offset, context, statement, flags, resolveReferences, true);
-            exprs.Add(expr);
+            exprList.Add(expr);
 
             offset += expr.FullText.Length;
         }
 
         ogOffset = offset;
 
-        return exprs;
+        return exprList;
     }
 
     private static void ValidateFunctionCall(FunctionCall func)
@@ -507,7 +512,7 @@ public partial class Parser
 
     private static FunctionAccepts TryFindSuitableVariantForCall(Function meta, List<Expression> parameters)
     {
-        var candidates = meta.Variations.Where(v => v.Parameters.Count() == parameters.Count);
+        var candidates = meta.Variations.Where(v => v.Parameters.Count == parameters.Count);
         var provided = parameters.Select(expr => expr.Type).ToList();
         if (provided.Any(p => p == Expression.ExpressionType.Unknown))
         {
@@ -516,11 +521,11 @@ public partial class Parser
             return candidates.First();
         }
 
-        foreach (var cand in candidates)
+        foreach (var candidate in candidates)
         {
-            if (provided.SequenceEqual(cand.Parameters.Select(Expression.ColumnTypeToExpressionType)))
+            if (provided.SequenceEqual(candidate.Parameters.Select(Expression.ColumnTypeToExpressionType)))
             {
-                return cand;
+                return candidate;
             }
         }
 
@@ -679,6 +684,10 @@ public partial class Parser
                         expr.Nodes.RemoveAt(expr.Nodes.Count - 1);
 
                         var lastReference = expr.Nodes.Last().ReferenceValue;
+                        if (lastReference == null)
+                        {
+                            throw new WoobyParserException("Internal error: Reference is null", offset, token);
+                        }
                         if (!string.IsNullOrEmpty(lastReference.Table))
                         {
                             throw new Exception($"Undefined reference to function call \"{lastReference.Join()}\"");
@@ -690,14 +699,10 @@ public partial class Parser
                             throw new Exception("Undefined reference to function");
                         }
 
-                        var func = new FunctionCall
-                        {
-                            Meta = funcMeta,
-                            Arguments = ParseFunctionArguments(input, ref offset, context, statement,
-                                resolveReferences)
-                        };
-                        func.CalledVariant =
-                            TryFindSuitableVariantForCall(funcMeta, func.Arguments);
+                        var arguments = ParseFunctionArguments(input, ref offset, context, statement,
+                            resolveReferences);
+                        var variant = TryFindSuitableVariantForCall(funcMeta, arguments);
+                        var func = new FunctionCall(funcMeta, variant, arguments);
 
                         if (func.CalledVariant.IsAggregate && !flags.AllowAggregateFunctions)
                         {
@@ -751,7 +756,7 @@ public partial class Parser
                 if (token.Kind == TokenKind.Symbol)
                 {
                     offset -= token.InputLength;
-                    // Only allow table wildcards (e.g. tablename.*) on root scope, when no other value or operator was provided
+                    // Only allow table wildcards (e.g. table_name.*) on root scope, when no other value or operator was provided
                     referenceFlags.WildcardAllowed = root && expr.Nodes.Count == 0 && flags.WildcardAllowed;
                     var symbol = ParseReference(input, offset, context, statement, referenceFlags);
                     var symNode = new Expression.Node {Kind = Expression.NodeKind.Reference, ReferenceValue = symbol};
@@ -802,7 +807,7 @@ public partial class Parser
         return offset;
     }
 
-    public Expression ParseExpression(string input, int offset, Context context, Statement statement,
+    private Expression ParseExpression(string input, int offset, Context context, Statement statement,
         ExpressionFlags flags, bool resolveReferences, bool insideFunction)
     {
         var expr = new Expression();
@@ -820,7 +825,7 @@ public partial class Parser
         }
         else if (expr.IsOnlyReference())
         {
-            expr.Identifier = expr.Nodes[0].ReferenceValue.Join();
+            expr.Identifier = expr.Nodes[0].ReferenceValue?.Join();
         }
 
         return expr;
@@ -926,7 +931,7 @@ public partial class Parser
             {
                 offset += token.InputLength;
             }
-            else if ((token.Kind == TokenKind.Keyword && token.KeywordValue == Keyword.As) ||
+            else if (token is { Kind: TokenKind.Keyword, KeywordValue: Keyword.As } ||
                      token.Kind == TokenKind.Symbol)
             {
                 if (token.Kind == TokenKind.Keyword)
@@ -1018,7 +1023,7 @@ public partial class Parser
                 Reference = ParseReference(input, offset, context, statement, new ReferenceFlags {TableOnly = true})
             };
         }
-        if (next.Kind == TokenKind.Operator && next.OperatorValue == Operator.ParenthesisLeft)
+        if (next is { Kind: TokenKind.Operator, OperatorValue: Operator.ParenthesisLeft })
         {
             var flags = statement.UsedFlags;
             flags.ForceOutputIdentifiers = true;
@@ -1035,7 +1040,7 @@ public partial class Parser
 
             next = NextToken(input, offset);
             var hasAs = false;
-            if (next.Kind == TokenKind.Keyword && next.KeywordValue == Keyword.As)
+            if (next is { Kind: TokenKind.Keyword, KeywordValue: Keyword.As })
             {
                 hasAs = true;
                 source.SubSelect.InputLength += next.InputLength;
@@ -1060,7 +1065,7 @@ public partial class Parser
     private int ParseWhere(string input, int offset, Context context, Statement statement)
     {
         var originalOffset = offset;
-        if (statement.FilterConditions != null)
+        if (statement.Sources[0].Condition != null)
         {
             throw new Exception("Unexpected WHERE when filter has already been set");
         }
@@ -1071,9 +1076,9 @@ public partial class Parser
             SingleValueSubSelectAllowed = true
         };
 
-        statement.FilterConditions = ParseExpression(input, offset, context, statement, exprFlags,
+        statement.Sources[0].Condition = ParseExpression(input, offset, context, statement, exprFlags,
             statement.Parent == null, false);
-        offset += statement.FilterConditions.FullText.Length;
+        offset += statement.Sources[0].Condition.FullText.Length;
 
         return offset - originalOffset;
     }

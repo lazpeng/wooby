@@ -170,20 +170,20 @@ public class Expression
         Null
     }
 
-    public struct Node
+    public class Node
     {
         public NodeKind Kind;
-        public string StringValue;
+        public string StringValue = string.Empty;
         public double NumberValue;
         public Operator OperatorValue;
-        public ColumnReference ReferenceValue;
-        public FunctionCall FunctionCall;
-        public SelectStatement SubSelect;
+        public ColumnReference? ReferenceValue;
+        public FunctionCall? FunctionCall;
+        public SelectStatement? SubSelect;
 
         public bool IsWildcard()
         {
             return (Kind == NodeKind.Operator && OperatorValue == Operator.Asterisk) ||
-                   (Kind == NodeKind.Reference && ReferenceValue.Column == "*");
+                   (Kind == NodeKind.Reference && ReferenceValue?.Column == "*");
         }
     }
 
@@ -225,7 +225,7 @@ public class Expression
 
     public string FullText { get; set; } = string.Empty;
     public string? Identifier { get; set; }
-    public List<Node> Nodes { get; init; } = new ();
+    public List<Node> Nodes { get; private init; } = new ();
     public ExpressionType Type { get; set; } = ExpressionType.Unknown;
     public bool IsBoolean { get; set; }
     public bool HasAggregateFunction { get; set; }
@@ -243,12 +243,7 @@ public class Expression
 
     public bool IsWildcard()
     {
-        if (Nodes.Count == 0)
-        {
-            return false;
-        }
-
-        return Nodes.Any(n => n.IsWildcard());
+        return Nodes.Count != 0 && Nodes.Any(n => n.IsWildcard());
     }
 
     public static bool IsTokenInvalidForExpressionStart(Token token)
@@ -265,22 +260,9 @@ public class Expression
     {
         return Nodes is [{ Kind: NodeKind.Function }];
     }
-
-    public override bool Equals(object? obj)
-    {
-        return obj is Expression expression &&
-               Nodes.SequenceEqual(expression.Nodes) &&
-               Type == expression.Type &&
-               IsBoolean == expression.IsBoolean;
-    }
-
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(FullText, Identifier, Nodes, Type);
-    }
 }
 
-public struct FunctionCall
+public class FunctionCall
 {
     public Function Meta { get; init; }
     public FunctionAccepts CalledVariant { get; set; }
@@ -321,26 +303,9 @@ public struct FunctionCall
         }
     }
 
-    public override bool Equals(object? obj)
-    {
-        return obj is FunctionCall call &&
-               Meta.Name == call.Meta.Name &&
-               Arguments.SequenceEqual(call.Arguments);
-    }
-
     public override int GetHashCode()
     {
         return HashCode.Combine(Meta.Name, Arguments);
-    }
-
-    public static bool operator ==(FunctionCall left, FunctionCall right)
-    {
-        return left.Equals(right);
-    }
-
-    public static bool operator !=(FunctionCall left, FunctionCall right)
-    {
-        return !(left == right);
     }
 }
 
@@ -350,14 +315,9 @@ public record ColumnReference
     public string Column { get; set; } = string.Empty;
     public string Identifier { get; set; } = string.Empty;
     public int InputLength { get; set; }
-    public int ParentLevel { get; init; }
+    public int ParentLevel { get; set; }
     public Expression.ExpressionType Type { get; set; } = Expression.ExpressionType.Unknown;
     private string _cachedJoin = string.Empty;
-
-    public ColumnReference()
-    {
-        
-    }
 
     public string Join()
     {
@@ -377,17 +337,6 @@ public enum StatementKind
     Definition
 }
 
-public enum StatementClass
-{
-    Select,
-    Insert,
-    Update,
-    Delete,
-    Alter,
-    Create,
-    Drop,
-}
-
 public class TableSource
 {
     public enum SourceKind
@@ -397,7 +346,7 @@ public class TableSource
     }
         
     public SourceKind Kind { get; init; }
-    public ColumnReference Reference { get; init; }
+    public ColumnReference Reference { get; init; } = new();
     public SelectStatement? SubSelect { get; init; }
     private TableMeta? CachedMeta { get; set; }
 
@@ -442,16 +391,33 @@ public class TableSource
         }
     }
 
-    public ColumnMeta? FindReference(ColumnReference reference, Context context)
+    public ColumnReference? FindReference(ColumnReference reference, Context context)
     {
-        if (Kind != SourceKind.Reference) return GetMeta(context).FindColumn(reference);
-        
-        if (string.IsNullOrEmpty(reference.Table))
+        ColumnMeta? col;
+        if (Kind != SourceKind.Reference)
         {
-            reference.Table = Table;
+            col = GetMeta(context).FindColumn(reference);
+            if (col != null)
+            {
+                return new ColumnReference
+                {
+                    Column = col.Name,
+                    Table = col.Table,
+                    Type = Expression.ColumnTypeToExpressionType(col.Type)
+                };
+            }
+
+            return null;
         }
 
-        return GetMeta(context).FindColumn(reference);
+        col = GetMeta(context).FindColumn(reference);
+        if (col == null) return reference;
+        
+        if (string.IsNullOrEmpty(reference.Table))
+            reference.Table = CanonName;
+        reference.Type = Expression.ColumnTypeToExpressionType(col.Type);
+
+        return reference;
     }
 
     public TableMeta GetMeta(Context context)
@@ -506,50 +472,43 @@ public class TableSource
 public abstract class Statement
 {
     public StatementKind Kind { get; protected init; }
-    protected StatementClass Class { get; init; }
     public string OriginalText { get; set; } = string.Empty;
-    public TableSource MainSource { get; set; } = new();
-    public Expression? FilterConditions { get; set; }
+    public List<Joining> Sources { get; } = new();
     public Statement? Parent { get; set; }
     public StatementFlags UsedFlags { get; set; } = new();
     public int InputLength { get; set; }
+
+    private ColumnReference? FindReference(Context context, ColumnReference reference)
+    {
+        if (!string.IsNullOrEmpty(reference.Table))
+        {
+            var source = Sources.Find(s => s.Source.NameMatches(reference.Table));
+            
+            return source?.Source.FindReference(reference, context);
+        }
+
+        var candidates = Sources
+            .Select(s => s.Source.FindReference(reference, context))
+            .Where(r => r != null)
+            .ToArray();
+        
+        if (candidates.Length > 1)
+            throw new WoobyParserException("Ambiguous reference to column", 0);
+
+        return candidates.FirstOrDefault();
+    }
 
     public ColumnReference? TryFindReferenceRecursive(Context context, ColumnReference reference, int level)
     {
         if (reference.Column == "*")
             return reference;
-            
-        if (MainSource.NameMatches(reference.Table) || reference.Table == "")
-        {
-            var col = MainSource.FindReference(reference, context);
-            if (col != null)
-            {
-                return new ColumnReference
-                {
-                    Table = col.Table,
-                    ParentLevel = level,
-                    Column = col.Name,
-                    Type = Expression.ColumnTypeToExpressionType(col.Type)
-                };
-            }
-        }
-        else if (this is SelectStatement query)
-        {
-            var join = query.Joins.FirstOrDefault(j => j.Source.NameMatches(reference.Table));
-            var col = join?.Source.FindReference(reference, context);
-            if (col != null)
-            {
-                return new ColumnReference
-                {
-                    Table = col.Table,
-                    ParentLevel = level,
-                    Column = col.Name,
-                    Type = Expression.ColumnTypeToExpressionType(col.Type)
-                };
-            }
-        }
 
-        return Parent?.TryFindReferenceRecursive(context, reference, level + 1);
+        var match = FindReference(context, reference);
+        if (match == null) return Parent?.TryFindReferenceRecursive(context, reference, level + 1);
+        
+        match.ParentLevel = level;
+        return match;
+
     }
 }
 
@@ -563,24 +522,11 @@ public class Ordering
 {
     public Expression OrderExpression { get; init; } = new();
     public OrderingKind Kind { get; set; } = OrderingKind.Ascending;
-
-    public override bool Equals(object? obj)
-    {
-        return obj is Ordering ordering &&
-               OrderExpression.Equals(ordering.OrderExpression) &&
-               Kind == ordering.Kind;
-    }
-
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(OrderExpression, Kind);
-    }
 }
 
 public enum JoinKind
 {
     Inner,
-    Outer,
     Left,
     Right
 }
@@ -589,7 +535,7 @@ public class Joining
 {
     public TableSource Source { get; init; } = new();
     public JoinKind Kind { get; init; } = JoinKind.Inner;
-    public Expression Condition { get; init; } = new();
+    public Expression Condition { get; set; } = new();
 }
 
 public class SelectStatement : Statement
@@ -597,32 +543,13 @@ public class SelectStatement : Statement
     public SelectStatement()
     {
         Kind = StatementKind.Query;
-        Class = StatementClass.Select;
     }
 
     public List<Expression> OutputColumns { get; set; } = new();
     public List<Ordering> OutputOrder { get; init; } = new();
     public List<Expression> Grouping { get; } = new();
-    public List<Joining> Joins { get; } = new();
     public string Identifier { get; set; } = string.Empty;
     public bool Distinct { get; set; }
-
-    public override bool Equals(object? obj)
-    {
-        return obj is SelectStatement statement &&
-               Kind == statement.Kind &&
-               Class == statement.Class &&
-               OutputColumns.SequenceEqual(statement.OutputColumns) &&
-               (MainSource == statement.MainSource || MainSource.Equals(statement.MainSource)) &&
-               (FilterConditions == statement.FilterConditions ||
-                (FilterConditions?.Equals(statement.FilterConditions) ?? false)) &&
-               OutputOrder.SequenceEqual(statement.OutputOrder);
-    }
-
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(Kind, Class, OutputColumns, MainSource, FilterConditions, OutputOrder);
-    }
 }
 
 public class ColumnNameTypeDef
@@ -636,7 +563,6 @@ public class CreateStatement : Statement
     public CreateStatement()
     {
         Kind = StatementKind.Definition;
-        Class = StatementClass.Create;
     }
 
     public string Name { get; set; } = string.Empty;
@@ -648,7 +574,6 @@ public class InsertStatement : Statement
     public InsertStatement()
     {
         Kind = StatementKind.Manipulation;
-        Class = StatementClass.Insert;
     }
 
     public List<string> Columns { get; set; } = new();
@@ -660,7 +585,6 @@ public class UpdateStatement : Statement
     public UpdateStatement()
     {
         Kind = StatementKind.Manipulation;
-        Class = StatementClass.Update;
     }
 
     public List<Tuple<ColumnReference, Expression>> Columns { get; set; } = new ();
@@ -671,6 +595,5 @@ public class DeleteStatement : Statement
     public DeleteStatement()
     {
         Kind = StatementKind.Manipulation;
-        Class = StatementClass.Delete;
     }
 }

@@ -344,15 +344,10 @@ public record DateValue(DateTime Value) : BaseValue
     }
 }
 
-public struct TempRow
+public class TempRow
 {
-    public Dictionary<string, BaseValue> EvaluatedReferences { get; }
+    public Dictionary<string, BaseValue> EvaluatedReferences { get; } = new();
     public long RowId;
-
-    public TempRow()
-    {
-        EvaluatedReferences = new Dictionary<string, BaseValue>();
-    }
 }
 
 public enum QueryEvaluationPhase

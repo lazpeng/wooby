@@ -40,8 +40,10 @@ public partial class Parser
             AssertTokenIsSymbol(next, "Expected symbol in INSERT column target list");
             var column = next.StringValue;
 
-            if (statement.MainSource.FindReference(
-                    new ColumnReference {Column = column, Table = statement.MainSource.Table}, context) == null)
+            var mainSource = statement.Sources[0].Source;
+
+            if (mainSource.FindReference(
+                    new ColumnReference {Column = column, Table = mainSource.Table}, context) == null)
             {
                 throw new Exception(
                     $"Expected valid existing column name in target columns list, found '{column}'");
@@ -145,12 +147,13 @@ public partial class Parser
         offset += next.InputLength;
 
         // Which table we are inserting into
-        statement.MainSource = ParseTableSource(input, offset, context, statement);
-        if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
+        var mainSource = ParseTableSource(input, offset, context, statement);
+        statement.Sources.Add(new Joining {Kind = JoinKind.Inner, Source = mainSource});
+        if (mainSource.Kind != TableSource.SourceKind.Reference)
         {
             throw new WoobyParserException("Expected table reference after FROM keyword", offset);
         }
-        offset += statement.MainSource.InputLength;
+        offset += mainSource.InputLength;
 
         next = NextToken(input, offset);
         offset += next.InputLength;
@@ -190,12 +193,13 @@ public partial class Parser
 
         // First is UPDATE, next is the table we're updating
         SkipNextToken(input, ref offset);
-        statement.MainSource = ParseTableSource(input, offset, context, statement);
-        if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
+        var mainSource = ParseTableSource(input, offset, context, statement);
+        statement.Sources.Add(new Joining {Kind = JoinKind.Inner, Source = mainSource});
+        if (mainSource.Kind != TableSource.SourceKind.Reference)
         {
             throw new WoobyParserException("Expected table reference after FROM keyword", offset);
         }
-        offset += statement.MainSource.InputLength;
+        offset += mainSource.InputLength;
             
         var next = NextToken(input, offset);
         offset += next.InputLength;
@@ -235,12 +239,13 @@ public partial class Parser
         offset += next.InputLength;
 
         // Which table we are deleting from
-        statement.MainSource = ParseTableSource(input, offset, context, statement);
-        if (statement.MainSource.Kind != TableSource.SourceKind.Reference)
+        var mainSource = ParseTableSource(input, offset, context, statement);
+        statement.Sources.Add(new Joining {Kind = JoinKind.Inner, Source = mainSource});
+        if (mainSource.Kind != TableSource.SourceKind.Reference)
         {
             throw new WoobyParserException("Expected table reference after FROM keyword", offset);
         }
-        offset += statement.MainSource.InputLength;
+        offset += mainSource.InputLength;
 
         next = NextToken(input, offset);
         if (next.IsKeyword() && next.KeywordValue == Keyword.Where)

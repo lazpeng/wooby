@@ -146,7 +146,7 @@ public class Machine
         else if (expr.IsOnlyReference() && exec.Sources.Count == 1)
         {
             var re = expr.Nodes[0].ReferenceValue;
-            id = re.Column;
+            id = re?.Column ?? "";
         }
         else
         {
@@ -366,13 +366,14 @@ public class Machine
 
     private static void ExecuteInsert(ExecutionContext exec, InsertStatement insert)
     {
-        if (insert.MainSource.Kind != TableSource.SourceKind.Reference)
+        var mainSource = insert.Sources[0].Source;
+        if (mainSource.Kind != TableSource.SourceKind.Reference)
         {
             throw new WoobyDatabaseException("Cannot run manipulation on temporary query table");
         }
 
         var newColumns = new Dictionary<int, BaseValue>();
-        var table = exec.Context.FindTable(insert.MainSource.Reference);
+        var table = exec.Context.FindTable(mainSource.Reference);
         if (table == null)
         {
             throw new Exception("Could not find table");
@@ -413,24 +414,8 @@ public class Machine
         var flags = new EvaluationFlags(QueryEvaluationPhase.Final, ExpressionOrigin.Filter);
 
         exec.QueryOutput.Rows.Add(new OutputRow());
-        while (exec.MainSource.DataProvider.SeekNext())
+        while (RecursiveSeekQuery(exec, update, 0))
         {
-            if (update.FilterConditions != null)
-            {
-                var filter = EvaluateExpression(exec, update.FilterConditions, null, flags);
-                if (filter is BooleanValue boolean)
-                {
-                    if (!boolean.Value)
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    throw new Exception("Expected boolean result for WHERE clause expression");
-                }
-            }
-
             var dict = new Dictionary<int, BaseValue>();
 
             foreach (var col in update.Columns)
@@ -456,25 +441,8 @@ public class Machine
         SetupSources(exec, delete);
         var affected = 0;
 
-        while (exec.MainSource.DataProvider.SeekNext())
+        while (RecursiveSeekQuery(exec, delete, 0))
         {
-            if (delete.FilterConditions != null)
-            {
-                var flags = new EvaluationFlags(QueryEvaluationPhase.Final, ExpressionOrigin.Filter);
-                var filter = EvaluateExpression(exec, delete.FilterConditions, null, flags);
-                if (filter is BooleanValue boolean)
-                {
-                    if (!boolean.Value)
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    throw new Exception("Expected boolean result for WHERE clause expression");
-                }
-            }
-
             affected += 1;
             exec.MainSource.DataProvider.Delete();
         }
@@ -595,8 +563,10 @@ public class Machine
                 exec.Stack.Push(new NullValue());
                 break;
             case Expression.NodeKind.Reference:
+                if (node.ReferenceValue == null)
+                    throw new WoobyDatabaseException("Internal error: Reference is null");
                 if (tempRow == null ||
-                    !tempRow.Value.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out var value))
+                    !tempRow.EvaluatedReferences.TryGetValue(node.ReferenceValue.Join(), out var value))
                 {
                     value = ReadColumnReference(exec, node.ReferenceValue);
                 }
@@ -622,13 +592,15 @@ public class Machine
                 if (node.Kind == Expression.NodeKind.Function)
                 {
                     var call = node.FunctionCall;
+                    if (call == null)
+                        throw new WoobyDatabaseException("Internal error: FunctionCall is null");
+                    
                     if (tempRow == null ||
-                        !tempRow.Value.EvaluatedReferences.TryGetValue(call.FullText, out var value))
+                        !tempRow.EvaluatedReferences.TryGetValue(call.FullText, out var value))
                     {
                         if (call.CalledVariant.IsAggregate)
                         {
-                            if (flags.Origin == ExpressionOrigin.Grouping ||
-                                flags.Origin == ExpressionOrigin.Filter)
+                            if (flags.Origin is ExpressionOrigin.Grouping or ExpressionOrigin.Filter)
                             {
                                 throw new Exception("Invalid use of aggregate function");
                             }
@@ -647,6 +619,8 @@ public class Machine
                 }
                 else if (node.Kind == Expression.NodeKind.SubSelect)
                 {
+                    if (node.SubSelect == null)
+                        throw new WoobyDatabaseException("Internal error: SubSelect is null");
                     PerformSubSelect(exec, node.SubSelect);
                 }
                 else
@@ -694,7 +668,10 @@ public class Machine
                     if (tempRow != null)
                     {
                         var call = node.FunctionCall;
-                        if (!tempRow.Value.EvaluatedReferences.TryGetValue(call.FullText, out var value))
+                        if (call == null)
+                            throw new WoobyDatabaseException("Internal error: FunctionCall is null");
+                        
+                        if (!tempRow.EvaluatedReferences.TryGetValue(call.FullText, out var value))
                         {
                             value = EvaluateFunctionCall(exec, call, tempRow, flags);
                         }
@@ -708,6 +685,8 @@ public class Machine
                 }
                 else if (node.Kind == Expression.NodeKind.SubSelect)
                 {
+                    if (node.SubSelect == null)
+                        throw new WoobyDatabaseException("Internal error: SubSelect is null");
                     PerformSubSelect(exec, node.SubSelect);
                 }
                 else
@@ -752,11 +731,16 @@ public class Machine
         {
             if (node.Kind == Expression.NodeKind.Reference)
             {
+                if (node.ReferenceValue == null)
+                    throw new WoobyDatabaseException("Internal error: Reference is null");
                 EvaluateSingleReference(exec, temp, node.ReferenceValue);
             }
             else if (node.Kind == Expression.NodeKind.Function)
             {
                 var call = node.FunctionCall;
+                if (call == null)
+                    throw new WoobyDatabaseException("Internal error: FunctionCall is null");
+
                 if (temp.EvaluatedReferences.ContainsKey(call.FullText))
                 {
                     continue;
@@ -778,21 +762,11 @@ public class Machine
         }
     }
 
-    private static bool RecursiveSeekQuery(ExecutionContext exec, SelectStatement query, int idx,
+    private static bool RecursiveSeekQuery(ExecutionContext exec, Statement query, int idx,
         bool reset = false)
     {
-        Expression? condition;
-        bool rowIsOptional;
-        if (idx == 0)
-        {
-            condition = query.FilterConditions;
-            rowIsOptional = false;
-        }
-        else
-        {
-            condition = query.Joins[idx - 1].Condition;
-            rowIsOptional = query.Joins[idx - 1].Kind is JoinKind.Left or JoinKind.Right;
-        }
+        var condition = query.Sources[idx].Condition.Nodes.Any() ? query.Sources[idx].Condition : null;
+        var rowIsOptional = query.Sources[idx].Kind is JoinKind.Left or JoinKind.Right;
 
         var success = true;
 
@@ -943,10 +917,7 @@ public class Machine
 
     private static void SetupSources(ExecutionContext exec, Statement statement)
     {
-        SetupMainSource(exec, statement.MainSource);
-        if (statement is not SelectStatement query) return;
-
-        foreach (var join in query.Joins)
+        foreach (var join in statement.Sources)
         {
             SetupMainSource(exec, join.Source);
         }
