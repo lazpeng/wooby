@@ -30,7 +30,7 @@ _unlikely = low priority, maybe never_
         - [ ] UNION ALL
         - [ ] UNION (filtering so that union'ed rows are not duplicate in the output)
     - [ ] Better semantic analysis for Boolean expressions (ensure expression is valid)
-    - [x] Single value subselect as expression
+    - [x] Single value sub select as expression
     - [x] Expandable type system
         - [ ] Custom conversion between types
     - [ ] More basic types
@@ -43,6 +43,18 @@ _unlikely = low priority, maybe never_
     - [x] Basic update support with SET list of columns
 - [ ] DELETE
     - [x] Basic DELETE support
+- [ ] Data definition and relationships
+    - [x] Basic CREATE
+    - [ ] DROP TABLE
+    - [ ] ALTER TABLE
+    - [ ] Primary keys
+    - [ ] Foreign keys
+    - [ ] Constraints
+      - [ ] UNIQUE
+      - [ ] NOT NULL
+      - [ ] CHECK
+      - [ ] ON DELETE clauses using foreign keys
+    - [ ] Indices
 - [ ] Functions
     - [x] Basic functions
     - [x] Aggregate functions
@@ -65,10 +77,12 @@ _unlikely = low priority, maybe never_
     - [ ] (unlikely) CROSS and SELF JOIN
 - [ ] HAVING clause
 - [ ] Meta tables with info about the schema and database
-- [ ] Explain execution plan
+- [ ] Explain/calculate an execution plan
+- [ ] Data persistence to the disk and caching
+    - [ ] Save query data to the disk as it's being read so that we can execute queries too big to fit in memory
+    - [ ] Binary model to save table data to the disk, with fast indexing and lookup
 - [ ] Import CSV files into tables from the command line
 - [ ] Command line that doesn't suck
-- [ ] (big one) Data persistence and querying of data from disk
 - [ ] System.Data interfaces implementation
 - [ ] GUI query runner and schema browser
 - [x] Unhelpful and vague error messages
