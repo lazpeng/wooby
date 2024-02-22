@@ -372,8 +372,7 @@ public partial class Parser
         };
     }
 
-    private static void ProcessExpressionNodeType(Expression expr, Context context, Statement statement,
-        Expression.Node node)
+    private static void ProcessExpressionNodeType(Expression expr, Context context, Statement statement, Expression.Node node)
     {
         Expression.ExpressionType nodeType;
         if (node.Kind == Expression.NodeKind.Reference)
@@ -388,7 +387,7 @@ public partial class Parser
             }
             else if (node.ReferenceValue.Type == Expression.ExpressionType.Unknown)
             {
-                throw new Exception("Function from symbol reference");
+                throw new Exception($"Undefined reference to {node.ReferenceValue.Join()}");
             }
 
             nodeType = node.ReferenceValue.Type;
@@ -1065,7 +1064,7 @@ public partial class Parser
     private int ParseWhere(string input, int offset, Context context, Statement statement)
     {
         var originalOffset = offset;
-        if (statement.Sources[0].Condition != null)
+        if (statement.Sources[0].Condition.Nodes.Count > 0)
         {
             throw new Exception("Unexpected WHERE when filter has already been set");
         }

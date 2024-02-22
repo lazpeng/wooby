@@ -170,7 +170,7 @@ public class Expression
         Null
     }
 
-    public class Node
+    public record Node
     {
         public NodeKind Kind;
         public string StringValue = string.Empty;
@@ -225,7 +225,7 @@ public class Expression
 
     public string FullText { get; set; } = string.Empty;
     public string? Identifier { get; set; }
-    public List<Node> Nodes { get; private init; } = new ();
+    public List<Node> Nodes { get; private init; } = new();
     public ExpressionType Type { get; set; } = ExpressionType.Unknown;
     public bool IsBoolean { get; set; }
     public bool HasAggregateFunction { get; set; }
@@ -239,6 +239,21 @@ public class Expression
             FullText = fullText,
             Identifier = "",
         };
+    }
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is Expression b)
+        {
+            return FullText == b.FullText || Nodes.SequenceEqual(b.Nodes);
+        }
+
+        return false;
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(FullText, Identifier);
     }
 
     public bool IsWildcard()
@@ -262,7 +277,7 @@ public class Expression
     }
 }
 
-public class FunctionCall
+public record FunctionCall
 {
     public Function Meta { get; init; }
     public FunctionAccepts CalledVariant { get; set; }

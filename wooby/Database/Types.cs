@@ -415,7 +415,7 @@ public class RowOrderingIntermediate
     }
 }
 
-public abstract class Function
+public abstract record Function
 {
     public abstract BaseValue WhenCalled(ExecutionContext context, List<BaseValue> arguments, string variation);
     public abstract IEnumerable<FunctionAccepts> Variations { get; }

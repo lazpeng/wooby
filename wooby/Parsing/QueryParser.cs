@@ -86,10 +86,10 @@ public partial class Parser
                 // Make sure that the aggregate function does NOT use a column or expression in the group by
                 if (output.Nodes
                     .Where(node => node is { Kind: Expression.NodeKind.Function, FunctionCall.CalledVariant.IsAggregate: true })
-                    .Any(node => node.FunctionCall != null && node.FunctionCall.Arguments.Any(p => query.Grouping.Contains(p))))
+                    .Any(node => node.FunctionCall != null && node.FunctionCall.Arguments.Any(p => query.Grouping.Contains(p)))
+                    )
                 {
-                    throw new WoobyParserException(
-                        "GROUP BY expression used as argument for aggregate function", 0);
+                    throw new WoobyParserException("GROUP BY expression used as argument for aggregate function", 0);
                 }
             }
             else

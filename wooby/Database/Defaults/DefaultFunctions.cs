@@ -5,7 +5,7 @@ using wooby.Error;
 
 namespace wooby.Database.Defaults;
 
-public class FunctionAccepts
+public record FunctionAccepts
 {
     public string Identifier { get; init; } = string.Empty;
     public ColumnType ResultType { get; init; }
@@ -13,7 +13,7 @@ public class FunctionAccepts
     public bool IsAggregate { get; init; }
 }
 
-internal class CurrentDateFunction : Function
+internal record CurrentDateFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -36,7 +36,7 @@ internal class CurrentDateFunction : Function
     }
 }
 
-internal class DatabaseNameFunction : Function
+internal record DatabaseNameFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -59,7 +59,7 @@ internal class DatabaseNameFunction : Function
     }
 }
 
-internal class RowNumFunction : Function
+internal record RowNumFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -82,7 +82,7 @@ internal class RowNumFunction : Function
     }
 }
 
-internal class RowIdFunction : Function
+internal record RowIdFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -105,7 +105,7 @@ internal class RowIdFunction : Function
     }
 }
 
-internal class TruncFunction : Function
+internal record TruncFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -132,7 +132,7 @@ internal class TruncFunction : Function
     }
 }
 
-internal class CountFunction : Function
+internal record CountFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -157,7 +157,7 @@ internal class CountFunction : Function
     }
 }
 
-internal class MinFunction : Function
+internal record MinFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -205,7 +205,7 @@ internal class MinFunction : Function
     }
 }
 
-internal class MaxFunction : Function
+internal record MaxFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
@@ -254,7 +254,7 @@ internal class MaxFunction : Function
     }
 }
 
-internal class SumFunction : Function
+internal record SumFunction : Function
 {
     public override IReadOnlyList<FunctionAccepts> Variations { get; } = new[]
     {
