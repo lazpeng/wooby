@@ -291,6 +291,14 @@ public class Machine
                 exec.MainSource.DataProvider.Seek(headId);
                 exec.TempRows = group;
 
+                // If a HAVING condition is set, a group has to fulfill the conditions
+                if (query.HavingCondition.Nodes.Count > 0)
+                {
+                    var result = EvaluateExpression(exec, query.HavingCondition, group[0], flags);
+                    if (result is not BooleanValue booleanValue || !booleanValue.Value)
+                        continue; // Next group
+                }
+
                 var row = new OutputRow { RowId = headId };
                 // For each sub group, now generate one output row
                 foreach (var expr in query.OutputColumns)

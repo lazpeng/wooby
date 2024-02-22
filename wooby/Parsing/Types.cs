@@ -155,6 +155,7 @@ public enum Keyword
     Inner,
     Join,
     On,
+    Having,
 }
 
 public class Expression
@@ -565,6 +566,7 @@ public class SelectStatement : Statement
     public List<Expression> Grouping { get; } = new();
     public string Identifier { get; set; } = string.Empty;
     public bool Distinct { get; set; }
+    public Expression HavingCondition { get; set; } = new();
 }
 
 public class ColumnNameTypeDef

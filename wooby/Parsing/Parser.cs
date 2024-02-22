@@ -45,6 +45,7 @@ public partial class Parser
         {"INNER", Keyword.Inner},
         {"JOIN", Keyword.Join},
         {"ON", Keyword.On},
+        {"HAVING", Keyword.Having},
     };
 
     private readonly Dictionary<string, Operator> _operatorDict = new()
@@ -197,6 +198,7 @@ public partial class Parser
 
     private Token ParseSymbol(string input, int offset)
     {
+        // FIXME: Should be able to parse symbols enclosed in double quotes ""
         var originalOffset = offset;
 
         offset += SkipWhitespace(input, offset);
@@ -754,13 +756,15 @@ public partial class Parser
 
                 if (token.Kind == TokenKind.Symbol)
                 {
+                    var peekNext = NextToken(input, offset);
                     offset -= token.InputLength;
                     // Only allow table wildcards (e.g. table_name.*) on root scope, when no other value or operator was provided
                     referenceFlags.WildcardAllowed = root && expr.Nodes.Count == 0 && flags.WildcardAllowed;
                     var symbol = ParseReference(input, offset, context, statement, referenceFlags);
                     var symNode = new Expression.Node {Kind = Expression.NodeKind.Reference, ReferenceValue = symbol};
 
-                    if (resolveReferences)
+                    // If it's a function, leave it so that the code above can deal with it
+                    if (resolveReferences && peekNext is not { Kind: TokenKind.Operator, OperatorValue: Operator.ParenthesisLeft })
                     {
                         ProcessExpressionNodeType(expr, context, statement, symNode);
                     }
@@ -1072,12 +1076,34 @@ public partial class Parser
         var exprFlags = new ExpressionFlags
         {
             GeneralWildcardAllowed = false, IdentifierAllowed = false, WildcardAllowed = false,
-            SingleValueSubSelectAllowed = true
+            SingleValueSubSelectAllowed = true, AllowAggregateFunctions = false
         };
 
-        statement.Sources[0].Condition = ParseExpression(input, offset, context, statement, exprFlags,
-            statement.Parent == null, false);
+        statement.Sources[0].Condition = ParseExpression(input, offset, context, statement, exprFlags, statement.Parent == null, false);
         offset += statement.Sources[0].Condition.FullText.Length;
+
+        return offset - originalOffset;
+    }
+
+    private int ParseHaving(string input, int offset, Context context, SelectStatement statement)
+    {
+        var originalOffset = offset;
+        if (statement.HavingCondition.Nodes.Count > 0)
+        {
+            throw new Exception("Unexpected HAVING when clause has already been set");
+        }
+
+        var exprFlags = new ExpressionFlags
+        {
+            GeneralWildcardAllowed = false,
+            IdentifierAllowed = false,
+            WildcardAllowed = false,
+            SingleValueSubSelectAllowed = true,
+            AllowAggregateFunctions = true
+        };
+
+        statement.HavingCondition = ParseExpression(input, offset, context, statement, exprFlags, statement.Parent == null, false);
+        offset += statement.HavingCondition.FullText.Length;
 
         return offset - originalOffset;
     }

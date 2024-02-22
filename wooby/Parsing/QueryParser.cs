@@ -392,6 +392,10 @@ public partial class Parser
                         offset += expr.FullText.Length;
                     }
                 }
+                else if (next.KeywordValue == Keyword.Having)
+                {
+                    offset += ParseHaving(input, offset, context, statement);
+                }
             }
             else if (next is { Kind: TokenKind.Operator, OperatorValue: Operator.ParenthesisRight })
             {
